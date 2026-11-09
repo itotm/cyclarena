@@ -1,0 +1,137 @@
+// Tracker: picks a target and doesn't let it go. It keeps the radar locked
+// on it, works out where it is going and throws at the point where the target
+// will be when the balloon arrives, not where it is now. Meanwhile it follows
+// the target from a distance, running at full speed from one point to another:
+// a robot that moves in straight lines at full speed is hard to hit.
+// mark() draws in the arena the point it is aiming at.
+
+const BALLOON_SPEED = 50;   // metres travelled by a balloon in one tick
+const RELOAD = 15;          // ticks needed between two throws
+const WALL = 60;            // keep at least this far from the walls
+
+var dir = 0;        // last known direction of the target
+var dist = 0;       // and its distance
+var misses = 0;     // radar sweeps without seeing it
+var reloaded = 0;   // tick when we can throw again
+
+// position of the target at the last measurement, and when it was taken
+var tx = 500;
+var ty = 500;
+var pt = -1;        // -1 = no measurement yet
+
+// estimated velocity of the target, in sixteenths of a metre per tick
+// (the language only has integers: this way we keep some precision)
+var vx = 0;
+var vy = 0;
+
+var gx = 0;         // where we are driving to
+var gy = 0;
+var deadline = 0;   // give up on that destination after this tick
+
+// narrows the radar beam around dir, halving the cone each time,
+// and returns the distance of the target (0 if it is not there)
+fn lock() {
+  var d = scan(dir, 10);
+  if (d == 0) {
+    return 0;
+  }
+  if (scan(dir - 5, 5) > 0) { dir -= 5; } else { dir += 5; }
+  if (scan(dir - 3, 3) > 0) { dir -= 2; } else { dir += 2; }
+  if (scan(dir - 1, 1) > 0) { dir -= 1; } else { dir += 1; }
+  var d2 = scan(dir, 1);
+  if (d2 > 0) {
+    return d2;
+  }
+  return d;
+}
+
+// works out the position of the target and, comparing it with the previous
+// one, its velocity
+fn track() {
+  var x = loc_x() + dist * cos(dir) / SCALE;
+  var y = loc_y() + dist * sin(dir) / SCALE;
+  var now = time();
+  if (pt < 0 || now - pt > 40) {
+    // first measurement (or a very old one): velocity unknown
+    vx = 0;
+    vy = 0;
+  } else if (now - pt >= 8) {
+    // velocity = distance travelled / time, measured over at least 8 ticks:
+    // over a shorter time the radar error would count too much, over a
+    // longer one we would notice too late when the target changes direction
+    vx = (x - tx) * 16 / (now - pt);
+    vy = (y - ty) * 16 / (now - pt);
+  } else {
+    return;   // too soon: keep the previous measurement
+  }
+  tx = x;
+  ty = y;
+  pt = now;
+}
+
+// throws at the point where the target will be when the balloon gets there
+fn aimAndThrow() {
+  var flight = dist / BALLOON_SPEED + (time() - pt) + 1;   // ticks from the last measurement
+  var ax = tx + vx * flight / 16 - loc_x();
+  var ay = ty + vy * flight / 16 - loc_y();
+  var range = sqrt(ax * ax + ay * ay);
+  if (range > 40 && range <= MAX_RANGE) {   // within 40 m the splash would paint us too
+    if (throw(atan2(ay, ax), range)) {
+      reloaded = time() + RELOAD;
+      mark(loc_x() + ax, loc_y() + ay);
+    }
+  }
+}
+
+// keeps a value between the walls
+fn inside(v) {
+  if (v < WALL) { return WALL; }
+  if (v > ARENA - WALL) { return ARENA - WALL; }
+  return v;
+}
+
+// new destination: a random point 400-600 metres from the target, on our
+// side. Far away a robot that doesn't predict our movement misses, while
+// we, predicting, can still hit
+fn newGoal() {
+  var r = 400 + rand(200);
+  var a = dir + 120 + rand(120);
+  gx = inside(tx + r * cos(a) / SCALE);
+  gy = inside(ty + r * sin(a) / SCALE);
+  var dx = gx - loc_x();
+  var dy = gy - loc_y();
+  drive(atan2(dy, dx), 100);
+  // at full speed a clean robot covers 7 metres per tick, a painted one
+  // less: allow some extra time
+  deadline = time() + (abs(dx) + abs(dy)) / 7 + 10;
+}
+
+// the main loop takes a few ticks per turn, so "arrived" means "close
+// enough"; the deadline avoids running into a wall if we miss the point
+fn move() {
+  if (abs(gx - loc_x()) + abs(gy - loc_y()) < 60 || time() > deadline) {
+    newGoal();
+  }
+}
+
+fn main() {
+  newGoal();
+  loop {
+    move();
+    dist = lock();
+    if (dist > 0) {
+      misses = 0;
+      track();
+      if (time() >= reloaded) {
+        aimAndThrow();
+      }
+    } else {
+      // lost: look around, starting from where it was
+      misses++;
+      dir += 20;
+      if (misses > 18) {
+        pt = -1;   // a full turn without seeing it: forget its velocity
+      }
+    }
+  }
+}

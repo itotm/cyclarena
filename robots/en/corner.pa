@@ -1,0 +1,65 @@
+// Corner: settles in a corner of the arena, where it only has to watch
+// 90 degrees instead of 360. It uses a narrow radar, which is cheap and
+// aims well. If it gets painted too much, it moves to another corner.
+
+const MARGIN = 25;
+
+var corner = 0;       // 0 = bottom left, then counterclockwise
+var paintBefore = 0;
+
+fn cornerX(c) {
+  if (c == 0 || c == 3) { return MARGIN; }
+  return ARENA - MARGIN;
+}
+
+fn cornerY(c) {
+  if (c < 2) { return MARGIN; }
+  return ARENA - MARGIN;
+}
+
+// drives to the point (x, y) and stops; slows down when close, so it
+// doesn't bump into the wall
+fn goTo(x, y) {
+  var dir = atan2(y - loc_y(), x - loc_x());
+  var deadline = time() + 600;
+  loop {
+    var dx = x - loc_x();
+    var dy = y - loc_y();
+    if (abs(dx) < 15 && abs(dy) < 15 || time() > deadline) {
+      break;
+    }
+    if (abs(dx) + abs(dy) < 120) {
+      drive(dir, 25);
+    } else {
+      drive(dir, 100);
+    }
+    yield();   // nothing else to do until the next tick: don't waste cycles
+  }
+  drive(dir, 0);
+}
+
+fn main() {
+  corner = rand(4);
+  goTo(cornerX(corner), cornerY(corner));
+  paintBefore = painted();
+  var start = corner * 90;
+  var dir = start;
+  loop {
+    var d = scan(dir, 3);
+    if (d > 0 && d <= MAX_RANGE) {
+      throw(dir, d);         // keep the same direction: someone is there
+    } else {
+      dir += 6;
+      if (dir > start + 90) {
+        dir = start;
+      }
+    }
+    if (painted() > paintBefore + 30) {
+      corner = (corner + 1 + rand(3)) % 4;
+      goTo(cornerX(corner), cornerY(corner));
+      paintBefore = painted();
+      start = corner * 90;
+      dir = start;
+    }
+  }
+}

@@ -1,0 +1,50 @@
+// Circuit: laps the arena along the walls, counterclockwise.
+// Next to a wall the others can only be on one side, so the radar sweeps
+// just the 180 degrees facing the inside of the arena.
+
+const MARGIN = 40;            // distance kept from the walls (they are freshly painted)
+const FAR = ARENA - MARGIN;
+const SLOW_DOWN = 50;         // start braking this many metres before a corner
+
+var side = 3;    // direction of travel / 90: 0 = east, 1 = north, 2 = west, 3 = south
+var sweep = 0;   // radar angle, from 0 (straight ahead) to 180 (straight behind)
+var braking = 0;
+
+// metres left before the next corner
+fn toCorner() {
+  if (side == 0) { return FAR - loc_x(); }
+  if (side == 1) { return FAR - loc_y(); }
+  if (side == 2) { return loc_x() - MARGIN; }
+  return loc_y() - MARGIN;
+}
+
+fn main() {
+  // it starts by heading south: when it reaches the bottom wall it turns
+  // east, and from then on it follows the walls
+  drive(side * 90, 100);
+  loop {
+    var left = toCorner();
+    if (left <= 0) {
+      // corner: turn left. Turning only works at 50% speed or less, and we
+      // have already slowed down
+      side = (side + 1) % 4;
+      braking = 0;
+      drive(side * 90, 100);
+    } else if (left < SLOW_DOWN && !braking) {
+      braking = 1;
+      drive(side * 90, 40);
+    }
+
+    // the inside of the arena is on our left: from side*90 to side*90 + 180
+    var dir = side * 90 + sweep;
+    var d = scan(dir, 10);
+    if (d > 0 && d <= MAX_RANGE) {
+      throw(dir, d);
+    } else {
+      sweep += 20;
+      if (sweep > 180) {
+        sweep = 0;
+      }
+    }
+  }
+}

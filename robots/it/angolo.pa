@@ -1,0 +1,65 @@
+// Angolo: si sistema in un angolo dell'arena, da dove deve sorvegliare solo
+// 90 gradi invece di 360. Usa un radar stretto, che costa poco e mira bene.
+// Se lo colorano troppo, si sposta in un altro angolo.
+
+const MARGINE = 25;
+
+var angolo = 0;       // 0 = in basso a sinistra, poi in senso antiorario
+var vernicePrima = 0;
+
+fn angoloX(a) {
+  if (a == 0 || a == 3) { return MARGINE; }
+  return ARENA - MARGINE;
+}
+
+fn angoloY(a) {
+  if (a < 2) { return MARGINE; }
+  return ARENA - MARGINE;
+}
+
+// va nel punto (x, y) e si ferma; quando è vicino rallenta, così non
+// urta il muro
+fn vaiA(x, y) {
+  var dir = atan2(y - loc_y(), x - loc_x());
+  var scadenza = time() + 600;
+  loop {
+    var dx = x - loc_x();
+    var dy = y - loc_y();
+    if (abs(dx) < 15 && abs(dy) < 15 || time() > scadenza) {
+      break;
+    }
+    if (abs(dx) + abs(dy) < 120) {
+      drive(dir, 25);
+    } else {
+      drive(dir, 100);
+    }
+    yield();   // non c'è altro da fare fino al prossimo tick: non sprecare cicli
+  }
+  drive(dir, 0);
+}
+
+fn main() {
+  angolo = rand(4);
+  vaiA(angoloX(angolo), angoloY(angolo));
+  vernicePrima = painted();
+  var inizio = angolo * 90;
+  var dir = inizio;
+  loop {
+    var d = scan(dir, 3);
+    if (d > 0 && d <= MAX_RANGE) {
+      throw(dir, d);         // resta nella stessa direzione: lì c'è qualcuno
+    } else {
+      dir += 6;
+      if (dir > inizio + 90) {
+        dir = inizio;
+      }
+    }
+    if (painted() > vernicePrima + 30) {
+      angolo = (angolo + 1 + rand(3)) % 4;
+      vaiA(angoloX(angolo), angoloY(angolo));
+      vernicePrima = painted();
+      inizio = angolo * 90;
+      dir = inizio;
+    }
+  }
+}

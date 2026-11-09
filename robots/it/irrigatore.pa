@@ -1,0 +1,15 @@
+// Irrigatore: sta fermo dov'è e continua a girare, come un irrigatore da giardino.
+// È il robot più semplice che sa davvero giocare.
+
+var dir = 0;
+
+fn main() {
+  loop {
+    var d = scan(dir, 10);
+    if (d > 0 && d <= MAX_RANGE) {
+      throw(dir, d);
+    } else {
+      dir = (dir + 20) % 360;
+    }
+  }
+}

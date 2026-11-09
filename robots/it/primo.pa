@@ -1,0 +1,27 @@
+// Il mio primo robot
+// ------------------
+// Un robot è un programma: parte da main() e non si ferma mai.
+// Ogni istruzione costa cicli (li vedi a sinistra, accanto ai numeri di
+// riga) e a ogni tick il robot ne ha 50 da spendere.
+// Più il programma è efficiente, più cose fa il robot nello stesso tempo.
+
+var dir = 0;   // dove guarda il radar, in gradi (0 = est, 90 = nord)
+
+fn main() {
+  loop {
+    // scan(direzione, ampiezza) guarda in un cono di ±ampiezza gradi
+    // e restituisce la distanza del robot più vicino (0 = nessuno)
+    var d = scan(dir, 10);
+
+    if (d > 0 && d <= MAX_RANGE) {
+      throw(dir, d);            // splash! il gavettone scoppia a distanza d
+    } else {
+      dir = (dir + 20) % 360;   // non c'è nessuno: gira il radar di 20 gradi
+    }
+  }
+}
+
+// Prova a:
+//  - farlo muovere con drive(direzione, velocità)
+//  - scrivere qualcosa con print("distanza", d)
+//  - usare un radar più stretto: costa meno cicli ma copre meno spazio

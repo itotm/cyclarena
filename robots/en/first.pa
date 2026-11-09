@@ -1,0 +1,27 @@
+// My first robot
+// --------------
+// A robot is a program: it starts from main() and never stops.
+// Every instruction costs cycles (you can see them on the left, next to the
+// line numbers) and every tick the robot has 50 of them to spend.
+// The more efficient the program, the more the robot does in the same time.
+
+var dir = 0;   // where the radar is looking, in degrees (0 = east, 90 = north)
+
+fn main() {
+  loop {
+    // scan(direction, width) looks inside a cone of ±width degrees
+    // and returns the distance of the nearest robot (0 = nobody)
+    var d = scan(dir, 10);
+
+    if (d > 0 && d <= MAX_RANGE) {
+      throw(dir, d);            // splash! the paint balloon bursts at distance d
+    } else {
+      dir = (dir + 20) % 360;   // nothing there: turn the radar by 20 degrees
+    }
+  }
+}
+
+// Try to:
+//  - make it move with drive(direction, speed)
+//  - print something with print("distance", d)
+//  - use a narrower radar: it costs fewer cycles but covers less space

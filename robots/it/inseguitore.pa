@@ -1,0 +1,43 @@
+// Inseguitore: trova qualcuno con il radar largo, poi stringe il fascio per
+// avere la direzione esatta, lancia e gli corre dietro.
+
+var dir = 0;
+
+// cerca la direzione precisa entro ±10 gradi con un fascio stretto
+fn affina(centro) {
+  for (var a = centro - 8; a <= centro + 8; a += 4) {
+    if (scan(a, 2) > 0) {
+      return a;
+    }
+  }
+  return centro;
+}
+
+fn viaDaiMuri() {
+  var x = loc_x();
+  var y = loc_y();
+  if (x < 80 || x > ARENA - 80 || y < 80 || y > ARENA - 80) {
+    drive(atan2(ARENA / 2 - y, ARENA / 2 - x), 50);
+  }
+}
+
+fn main() {
+  loop {
+    if (scan(dir, 10) > 0) {
+      var mira = affina(dir);
+      var r = scan(mira, 2);
+      if (r > 0 && r <= MAX_RANGE) {
+        throw(mira, r);
+      }
+      if (r > 300) {
+        drive(mira, 60);
+      } else {
+        drive(mira, 0);
+      }
+      dir = mira;
+    } else {
+      dir = (dir + 20) % 360;
+    }
+    viaDaiMuri();
+  }
+}

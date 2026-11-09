@@ -1,0 +1,138 @@
+// Segugio: sceglie un bersaglio e non lo molla più. Tiene il radar puntato
+// su di lui, capisce dove sta andando e lancia nel punto dove il bersaglio
+// sarà quando arriva il gavettone, non dove è adesso. Intanto lo segue a
+// distanza, correndo a tutta velocità da un punto all'altro: un robot che si
+// muove in linea retta a tutta velocità è difficile da colpire.
+// mark() disegna nell'arena il punto dove sta mirando.
+
+const VEL_GAVETTONE = 50;   // metri percorsi da un gavettone in un tick
+const RICARICA = 15;        // tick che servono tra un lancio e l'altro
+const MURO = 60;            // resta almeno a questa distanza dai muri
+
+var dir = 0;        // ultima direzione nota del bersaglio
+var dist = 0;       // e la sua distanza
+var mancati = 0;    // giri di radar senza vederlo
+var pronto = 0;     // tick in cui si può lanciare di nuovo
+
+// posizione del bersaglio all'ultima misura, e quando è stata presa
+var bx = 500;
+var by = 500;
+var bt = -1;        // -1 = ancora nessuna misura
+
+// velocità stimata del bersaglio, in sedicesimi di metro per tick
+// (il linguaggio ha solo numeri interi: così si tiene un po' di precisione)
+var vx = 0;
+var vy = 0;
+
+var mx = 0;         // dove stiamo andando
+var my = 0;
+var scadenza = 0;   // dopo questo tick si rinuncia a quella meta
+
+// stringe il fascio del radar attorno a dir, dimezzando il cono ogni volta,
+// e restituisce la distanza del bersaglio (0 se non c'è)
+fn aggancia() {
+  var d = scan(dir, 10);
+  if (d == 0) {
+    return 0;
+  }
+  if (scan(dir - 5, 5) > 0) { dir -= 5; } else { dir += 5; }
+  if (scan(dir - 3, 3) > 0) { dir -= 2; } else { dir += 2; }
+  if (scan(dir - 1, 1) > 0) { dir -= 1; } else { dir += 1; }
+  var d2 = scan(dir, 1);
+  if (d2 > 0) {
+    return d2;
+  }
+  return d;
+}
+
+// calcola la posizione del bersaglio e, confrontandola con la precedente,
+// la sua velocità
+fn segui() {
+  var x = loc_x() + dist * cos(dir) / SCALE;
+  var y = loc_y() + dist * sin(dir) / SCALE;
+  var ora = time();
+  if (bt < 0 || ora - bt > 40) {
+    // prima misura (o una troppo vecchia): velocità sconosciuta
+    vx = 0;
+    vy = 0;
+  } else if (ora - bt >= 8) {
+    // velocità = strada fatta / tempo, misurata su almeno 8 tick: su un tempo
+    // più breve l'errore del radar conterebbe troppo, su uno più lungo ci
+    // accorgeremmo troppo tardi che il bersaglio ha cambiato direzione
+    vx = (x - bx) * 16 / (ora - bt);
+    vy = (y - by) * 16 / (ora - bt);
+  } else {
+    return;   // troppo presto: teniamo la misura precedente
+  }
+  bx = x;
+  by = y;
+  bt = ora;
+}
+
+// lancia nel punto dove il bersaglio sarà quando il gavettone ci arriva
+fn miraELancia() {
+  var volo = dist / VEL_GAVETTONE + (time() - bt) + 1;   // tick dall'ultima misura
+  var ax = bx + vx * volo / 16 - loc_x();
+  var ay = by + vy * volo / 16 - loc_y();
+  var gittata = sqrt(ax * ax + ay * ay);
+  if (gittata > 40 && gittata <= MAX_RANGE) {   // entro 40 m lo schizzo colorerebbe anche noi
+    if (throw(atan2(ay, ax), gittata)) {
+      pronto = time() + RICARICA;
+      mark(loc_x() + ax, loc_y() + ay);
+    }
+  }
+}
+
+// tiene un valore lontano dai muri
+fn dentro(v) {
+  if (v < MURO) { return MURO; }
+  if (v > ARENA - MURO) { return ARENA - MURO; }
+  return v;
+}
+
+// nuova meta: un punto a caso tra 400 e 600 metri dal bersaglio, dalla nostra
+// parte. Da lontano un robot che non prevede i nostri movimenti sbaglia,
+// mentre noi, prevedendo, possiamo ancora colpire
+fn nuovaMeta() {
+  var r = 400 + rand(200);
+  var a = dir + 120 + rand(120);
+  mx = dentro(bx + r * cos(a) / SCALE);
+  my = dentro(by + r * sin(a) / SCALE);
+  var dx = mx - loc_x();
+  var dy = my - loc_y();
+  drive(atan2(dy, dx), 100);
+  // a tutta velocità un robot pulito fa 7 metri per tick, uno colorato
+  // meno: lasciamo un po' di tempo in più
+  scadenza = time() + (abs(dx) + abs(dy)) / 7 + 10;
+}
+
+// il ciclo principale impiega qualche tick a giro, quindi «arrivato» vuol
+// dire «abbastanza vicino»; la scadenza evita di finire contro un muro se
+// manchiamo il punto
+fn muoviti() {
+  if (abs(mx - loc_x()) + abs(my - loc_y()) < 60 || time() > scadenza) {
+    nuovaMeta();
+  }
+}
+
+fn main() {
+  nuovaMeta();
+  loop {
+    muoviti();
+    dist = aggancia();
+    if (dist > 0) {
+      mancati = 0;
+      segui();
+      if (time() >= pronto) {
+        miraELancia();
+      }
+    } else {
+      // perso: guarda intorno, partendo da dove era
+      mancati++;
+      dir += 20;
+      if (mancati > 18) {
+        bt = -1;   // un giro completo senza vederlo: dimentica la sua velocità
+      }
+    }
+  }
+}

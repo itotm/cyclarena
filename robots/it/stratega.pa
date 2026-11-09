@@ -1,0 +1,346 @@
+// Stratega: conosce cinque strategie e tiene quella che funziona meglio.
+// Ogni 400 tick misura quanta vernice ha preso con la strategia attuale e
+// dà il turno successivo a quella che finora è andata meglio, provando ogni
+// tanto anche le altre. Intanto registra ogni avvistamento in una lunga
+// cronologia, che usa per stimare dove vanno gli altri, e in una mappa fine
+// dell'arena: 100 × 100 quadretti di 10 metri, con l'ultima volta in cui ci
+// è stato visto qualcuno. La mappa da sola occupa 10000 parole di memoria:
+// troppe per la classe Standard, serve l'Illimitata.
+//
+// Strategie: 0 = angolo, 1 = giro attorno al centro, 2 = posti tranquilli,
+// 3 = inseguimento, 4 = lungo i muri.
+
+const CELLA = 10;               // lato di un quadretto, in metri
+const LATO = ARENA / CELLA;     // quadretti per lato: 100
+const CELLE = LATO * LATO;      // 10000
+const CRONOLOGIA = 512;         // avvistamenti tenuti nella cronologia
+const STRATEGIE = 5;
+const TURNO = 400;              // tick per ogni turno di strategia
+const MURO = 50;                // resta almeno a questa distanza dai muri
+const VEL_GAVETTONE = 50;       // metri percorsi da un gavettone in un tick
+const CENTRO = ARENA / 2;
+
+var vistoAl[CELLE];        // ultimo tick in cui è stato visto qualcuno in ogni quadretto (0 = mai)
+
+// cronologia degli avvistamenti: posizione e tick; è un anello, i più
+// nuovi sovrascrivono i più vecchi
+var cx[CRONOLOGIA];
+var cy[CRONOLOGIA];
+var ct[CRONOLOGIA];
+var cn = 0;                // avvistamenti registrati dall'inizio
+
+// come va ogni strategia
+var presa[STRATEGIE];      // vernice presa mentre la si gioca
+var giocati[STRATEGIE];    // turni giocati
+var strategia = 0;
+var fineTurno = 0;
+var verniceInizio = 0;
+
+var dir = 0;               // direzione del radar
+var giroDa = 0;            // il radar spazza da giroDa...
+var giroAmpio = 360;       // ...per questi gradi
+var mx = 500;              // dove stiamo andando
+var my = 500;
+var scadenza = 0;
+var angolo = 0;            // strategia 0: l'angolo scelto
+var lato = 0;              // strategia 4: il muro che stiamo seguendo
+var sterzaAl = 0;          // strategia 1: tick della prossima correzione
+
+var ultimaDir = 0;         // direzione e distanza dell'ultimo avvistamento
+var ultimaDist = 0;
+var ultimoAl = -1000;
+var vx = 0;                // velocità stimata, in sedicesimi di metro per tick
+var vy = 0;
+var vernicePrima = 0;      // vernice all'ultimo controllo, per schivare
+var lanci = 0;
+
+// --- mappa e cronologia ---
+
+fn cellaDi(x, y) {
+  var qx = x / CELLA;
+  var qy = y / CELLA;
+  if (qx < 0) { qx = 0; }
+  if (qx >= LATO) { qx = LATO - 1; }
+  if (qy < 0) { qy = 0; }
+  if (qy >= LATO) { qy = LATO - 1; }
+  return qy * LATO + qx;
+}
+
+fn registra(x, y) {
+  vistoAl[cellaDi(x, y)] = time() + 1;
+  var i = cn % CRONOLOGIA;
+  cx[i] = x;
+  cy[i] = y;
+  ct[i] = time();
+  cn++;
+}
+
+// velocità dagli ultimi avvistamenti (fino a 8, negli ultimi 40 tick), con
+// una retta dei minimi quadrati: attenua gli errori del radar
+fn stimaVelocita() {
+  var ora = time();
+  var n = 0;
+  var st = 0;
+  var sx = 0;
+  var sy = 0;
+  for (var k = 1; k <= 8 && k <= cn; k++) {
+    var i = (cn - k) % CRONOLOGIA;
+    if (ora - ct[i] > 40) {
+      break;
+    }
+    n++;
+    st += ct[i];
+    sx += cx[i];
+    sy += cy[i];
+  }
+  vx = 0;
+  vy = 0;
+  if (n < 3) {
+    return;
+  }
+  // somme moltiplicate per n, per restare con gli interi
+  var stt = 0;
+  var stx = 0;
+  var sty = 0;
+  for (var k = 1; k <= n; k++) {
+    var i = (cn - k) % CRONOLOGIA;
+    var dt = ct[i] * n - st;
+    stt += dt * dt;
+    stx += dt * (cx[i] * n - sx);
+    sty += dt * (cy[i] * n - sy);
+  }
+  if (stt > 0) {
+    vx = stx * 16 / stt;
+    vy = sty * 16 / stt;
+  }
+}
+
+// --- movimento ---
+
+fn limita(v) {
+  if (v < MURO) { return MURO; }
+  if (v > ARENA - MURO) { return ARENA - MURO; }
+  return v;
+}
+
+fn vaiA(x, y, passo) {
+  mx = limita(x);
+  my = limita(y);
+  var dx = mx - loc_x();
+  var dy = my - loc_y();
+  drive(atan2(dy, dx), passo);
+  scadenza = time() + (abs(dx) + abs(dy)) / 4 + 20;
+}
+
+fn arrivato() {
+  return abs(mx - loc_x()) + abs(my - loc_y()) < 30 || time() > scadenza;
+}
+
+// strategia 0: in un angolo, a sorvegliare solo 90 gradi
+fn giocaAngolo() {
+  var ax = MURO;
+  var ay = MURO;
+  if (angolo == 1 || angolo == 2) { ax = ARENA - MURO; }
+  if (angolo >= 2) { ay = ARENA - MURO; }
+  if (abs(ax - loc_x()) + abs(ay - loc_y()) > 30) {
+    if (time() > scadenza) {
+      vaiA(ax, ay, 100);
+    }
+    giroAmpio = 360;
+  } else {
+    drive(0, 0);
+    giroDa = angolo * 90;
+    giroAmpio = 90;
+  }
+}
+
+// strategia 1: in giro attorno al centro, a metà velocità per poter sterzare sempre
+fn giocaGiro() {
+  giroAmpio = 360;
+  if (time() < sterzaAl) {
+    return;
+  }
+  sterzaAl = time() + 4;
+  var dx = loc_x() - CENTRO;
+  var dy = loc_y() - CENTRO;
+  var r = sqrt(dx * dx + dy * dy);
+  var rotta = atan2(dy, dx) + 90;
+  if (r > 330) { rotta += 25; }
+  if (r < 270) { rotta -= 25; }
+  drive(rotta, 50);
+}
+
+// strategia 2: verso i quadretti dove nessuno è stato visto da più tempo
+fn giocaTranquillo() {
+  giroAmpio = 360;
+  if (!arrivato()) {
+    return;
+  }
+  var migliore = -1;
+  var bx = CENTRO;
+  var by = CENTRO;
+  for (var k = 0; k < 10; k++) {
+    var x = limita(rand(ARENA));
+    var y = limita(rand(ARENA));
+    var eta = time() + 1 - vistoAl[cellaDi(x, y)];
+    if (eta > migliore) {
+      migliore = eta;
+      bx = x;
+      by = y;
+    }
+  }
+  vaiA(bx, by, 100);
+}
+
+// strategia 3: dietro all'ultimo robot visto, restando a 250 metri
+fn giocaInseguimento() {
+  giroAmpio = 360;
+  if (time() - ultimoAl > 60) {
+    giocaTranquillo();
+    return;
+  }
+  if (!arrivato()) {
+    return;
+  }
+  var bx = loc_x() + ultimaDist * cos(ultimaDir) / SCALE;
+  var by = loc_y() + ultimaDist * sin(ultimaDir) / SCALE;
+  var a = ultimaDir + 150 + rand(60);
+  vaiA(bx + 250 * cos(a) / SCALE, by + 250 * sin(a) / SCALE, 100);
+}
+
+// strategia 4: lungo i muri, in senso antiorario, guardando dentro
+fn giocaMuri() {
+  var x = loc_x();
+  var y = loc_y();
+  if (lato == 0 && x >= ARENA - MURO - 20) { lato = 1; }
+  else if (lato == 1 && y >= ARENA - MURO - 20) { lato = 2; }
+  else if (lato == 2 && x <= MURO + 20) { lato = 3; }
+  else if (lato == 3 && y <= MURO + 20) { lato = 0; }
+  if (time() > scadenza) {
+    if (lato == 0) { vaiA(ARENA, MURO, 70); }
+    if (lato == 1) { vaiA(ARENA, ARENA, 70); }
+    if (lato == 2) { vaiA(MURO, ARENA, 70); }
+    if (lato == 3) { vaiA(MURO, MURO, 70); }
+    scadenza = time() + 25;
+  }
+  giroDa = lato * 90;
+  giroAmpio = 180;
+}
+
+// un rapido passo di lato quando la vernice sale
+fn schiva() {
+  var v = painted();
+  if (v >= vernicePrima + 8) {
+    var a = heading() + 90 + 180 * rand(2);
+    vaiA(loc_x() + 120 * cos(a) / SCALE, loc_y() + 120 * sin(a) / SCALE, 100);
+  }
+  vernicePrima = v;
+}
+
+// --- la scelta della strategia ---
+
+// vernice presa per turno, in centesimi: più è bassa, meglio è
+fn costo(s) {
+  return presa[s] * 100 / giocati[s];
+}
+
+fn prossimaStrategia() {
+  var v = painted();
+  presa[strategia] += v - verniceInizio;
+  giocati[strategia]++;
+  var prossima = -1;
+  // prima ogni strategia ha il suo turno
+  for (var s = 0; s < STRATEGIE; s++) {
+    if (prossima < 0 && giocati[s] == 0) {
+      prossima = s;
+    }
+  }
+  if (prossima < 0) {
+    if (rand(5) == 0) {
+      prossima = rand(STRATEGIE);    // ogni tanto, prova qualcos'altro
+    } else {
+      prossima = 0;
+      for (var s = 1; s < STRATEGIE; s++) {
+        if (costo(s) < costo(prossima)) {
+          prossima = s;
+        }
+      }
+    }
+  }
+  print("strategia", strategia, "ha preso il", v - verniceInizio, "% di vernice; prossima:", prossima);
+  strategia = prossima;
+  fineTurno = time() + TURNO;
+  verniceInizio = v;
+  angolo = rand(4);
+  lato = rand(4);
+  scadenza = 0;
+}
+
+fn gioca() {
+  if (strategia == 0) { giocaAngolo(); }
+  else if (strategia == 1) { giocaGiro(); }
+  else if (strategia == 2) { giocaTranquillo(); }
+  else if (strategia == 3) { giocaInseguimento(); }
+  else { giocaMuri(); }
+}
+
+// --- radar e lanci ---
+
+fn affina(centro) {
+  for (var a = centro - 8; a <= centro + 8; a += 2) {
+    if (scan(a, 1) > 0) {
+      return a;
+    }
+  }
+  return centro;
+}
+
+fn avvistato(a, d) {
+  ultimaDir = a;
+  ultimaDist = d;
+  ultimoAl = time();
+  var x = loc_x() + d * cos(a) / SCALE;
+  var y = loc_y() + d * sin(a) / SCALE;
+  registra(x, y);
+  stimaVelocita();
+  var volo = d / VEL_GAVETTONE + 1;
+  var bx = x + vx * volo / 16 - loc_x();
+  var by = y + vy * volo / 16 - loc_y();
+  var gittata = sqrt(bx * bx + by * by);
+  if (gittata > 45 && gittata <= MAX_RANGE) {
+    if (throw(atan2(by, bx), gittata)) {
+      lanci++;
+      mark(loc_x() + bx, loc_y() + by);
+    }
+  }
+}
+
+fn guarda() {
+  if (scan(dir, 10) > 0) {
+    var a = affina(dir);
+    var d = scan(a, 1);
+    if (d > 0) {
+      avvistato(a, d);
+    }
+    dir = a;
+    return;
+  }
+  dir += 20;
+  // con un giro limitato, si ricomincia dall'inizio
+  if (giroAmpio < 360 && (dir - giroDa + 720) % 360 > giroAmpio) {
+    dir = giroDa;
+  }
+}
+
+fn main() {
+  fineTurno = TURNO;
+  angolo = rand(4);
+  loop {
+    if (time() >= fineTurno) {
+      prossimaStrategia();
+    }
+    gioca();
+    guarda();
+    schiva();
+  }
+}

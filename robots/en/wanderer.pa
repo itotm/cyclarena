@@ -1,0 +1,27 @@
+// Wanderer: runs from one random point of the arena to another,
+// throwing paint at anyone who crosses its radar on the way.
+
+var dir = 0;   // radar direction
+var tx = 0;    // current destination
+var ty = 0;
+
+fn newDestination() {
+  tx = 100 + rand(ARENA - 200);
+  ty = 100 + rand(ARENA - 200);
+  drive(atan2(ty - loc_y(), tx - loc_x()), 100);
+}
+
+fn main() {
+  newDestination();
+  loop {
+    if (abs(tx - loc_x()) + abs(ty - loc_y()) < 60) {
+      newDestination();
+    }
+    var d = scan(dir, 10);
+    if (d > 0 && d <= MAX_RANGE) {
+      throw(dir, d);
+    } else {
+      dir = (dir + 20) % 360;
+    }
+  }
+}

@@ -1,0 +1,49 @@
+// Spiral: moves in a spiral around the centre of the arena, widening it
+// up to a maximum radius and then tightening it again. A target that keeps
+// turning is hard to hit.
+// A robot can only turn at 50% speed or less, so the spiral runs at 50%.
+
+const CENTER = ARENA / 2;
+const MIN_RADIUS = 80;
+const MAX_RADIUS = 380;
+const BIAS = 20;     // how many degrees the path leans outwards (or inwards)
+
+var outwards = 1;    // 1 = widening, 0 = tightening
+var nextSteer = 0;   // tick of the next course correction
+var dir = 0;         // radar direction
+
+// course correction: moving at right angles to the line from the centre
+// draws a circle; leaning a little outwards (or inwards) makes it a spiral
+fn steer() {
+  var dx = loc_x() - CENTER;
+  var dy = loc_y() - CENTER;
+  var r = sqrt(dx * dx + dy * dy);
+  if (r > MAX_RADIUS) { outwards = 0; }
+  if (r < MIN_RADIUS) { outwards = 1; }
+  var course = atan2(dy, dx) + 90;   // counterclockwise around the centre
+  if (outwards) {
+    course -= BIAS;
+  } else if (r > MAX_RADIUS + 60) {
+    course += 70;      // still far away (at the start): head almost straight in
+  } else {
+    course += BIAS;
+  }
+  drive(course, 50);
+}
+
+fn main() {
+  loop {
+    // steering costs about 40 cycles: once every 3 ticks is enough,
+    // the rest of the time goes to the radar
+    if (time() >= nextSteer) {
+      steer();
+      nextSteer = time() + 3;
+    }
+    var d = scan(dir, 10);
+    if (d > 0 && d <= MAX_RANGE) {
+      throw(dir, d);
+    } else {
+      dir = (dir + 20) % 360;
+    }
+  }
+}

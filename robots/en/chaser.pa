@@ -1,0 +1,43 @@
+// Chaser: finds someone with a wide radar, then narrows the beam to get
+// the exact direction, throws and runs after them.
+
+var dir = 0;
+
+// looks for the precise direction within ±10 degrees using a narrow beam
+fn refine(center) {
+  for (var a = center - 8; a <= center + 8; a += 4) {
+    if (scan(a, 2) > 0) {
+      return a;
+    }
+  }
+  return center;
+}
+
+fn awayFromWalls() {
+  var x = loc_x();
+  var y = loc_y();
+  if (x < 80 || x > ARENA - 80 || y < 80 || y > ARENA - 80) {
+    drive(atan2(ARENA / 2 - y, ARENA / 2 - x), 50);
+  }
+}
+
+fn main() {
+  loop {
+    if (scan(dir, 10) > 0) {
+      var aim = refine(dir);
+      var r = scan(aim, 2);
+      if (r > 0 && r <= MAX_RANGE) {
+        throw(aim, r);
+      }
+      if (r > 300) {
+        drive(aim, 60);
+      } else {
+        drive(aim, 0);
+      }
+      dir = aim;
+    } else {
+      dir = (dir + 20) % 360;
+    }
+    awayFromWalls();
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "paintarena-monorepo",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "homepage": "https://github.com/itotm/paintarena",
+  "repository": { "type": "git", "url": "git+https://github.com/itotm/paintarena.git" },
+  "scripts": {
+    "typecheck": "tsc -p packages/engine && tsc -p packages/cli && pnpm --filter @paintarena/web check",
+    "test": "node --test packages/engine/test/*.test.ts apps/web/test/*.test.ts",
+    "cli": "node packages/cli/src/main.ts",
+    "dev": "pnpm --filter @paintarena/web dev",
+    "build": "pnpm --filter @paintarena/web build",
+    "dist": "pnpm dlx bun@1.4.4 scripts/dist.ts windows",
+    "dist:linux": "pnpm dlx bun@1.4.4 scripts/dist.ts linux",
+    "dist:all": "pnpm dlx bun@1.4.4 scripts/dist.ts all"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^7.0.2"
+  },
+  "packageManager": "pnpm@12.18.0"
+}

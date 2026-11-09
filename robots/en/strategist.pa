@@ -1,0 +1,346 @@
+// Strategist: knows five strategies and keeps the one that works best.
+// Every 400 ticks it measures how much paint it took with the current
+// strategy and gives the next turn to the one that has done best so far,
+// trying the others now and then. Meanwhile it records every sighting in a
+// long history, which it uses to estimate where the others are going, and in
+// a fine map of the arena: 100 × 100 squares of 10 metres, with the last
+// time someone was seen in each one. The map alone takes 10000 words of
+// memory: far too many for the Standard class, it needs Unlimited.
+//
+// Strategies: 0 = corner, 1 = circle around the centre, 2 = quiet places,
+// 3 = chase, 4 = along the walls.
+
+const CELL = 10;                // side of a square, in metres
+const SIDE = ARENA / CELL;      // squares per side: 100
+const CELLS = SIDE * SIDE;      // 10000
+const HISTORY = 512;            // sightings kept in the history
+const STRATEGIES = 5;
+const TURN = 400;               // ticks per strategy turn
+const WALL = 50;                // keep this far from the walls
+const BALLOON_SPEED = 50;       // metres travelled by a balloon in one tick
+const CENTER = ARENA / 2;
+
+var seenAt[CELLS];         // last tick someone was seen in each square (0 = never)
+
+// history of sightings: position and tick; it is a ring, the newest
+// overwrite the oldest
+var hx[HISTORY];
+var hy[HISTORY];
+var ht[HISTORY];
+var hn = 0;                // sightings recorded since the start
+
+// how each strategy is doing
+var taken[STRATEGIES];     // paint taken while playing it
+var played[STRATEGIES];    // turns played
+var strategy = 0;
+var turnEnd = 0;
+var paintAtStart = 0;
+
+var dir = 0;               // radar direction
+var sweepFrom = 0;         // the radar sweeps from sweepFrom...
+var sweepWidth = 360;      // ...for this many degrees
+var gx = 500;              // where we are driving to
+var gy = 500;
+var deadline = 0;
+var corner = 0;            // strategy 0: the chosen corner
+var side = 0;              // strategy 4: the wall we are following
+var steerAt = 0;           // strategy 1: tick of the next correction
+
+var lastSeenDir = 0;       // direction and distance of the last sighting
+var lastSeenDist = 0;
+var lastSeenAt = -1000;
+var vx = 0;                // estimated velocity, in sixteenths of a metre per tick
+var vy = 0;
+var lastPaint = 0;         // paint at the last check, to dodge
+var throws = 0;
+
+// --- map and history ---
+
+fn cellOf(x, y) {
+  var cx = x / CELL;
+  var cy = y / CELL;
+  if (cx < 0) { cx = 0; }
+  if (cx >= SIDE) { cx = SIDE - 1; }
+  if (cy < 0) { cy = 0; }
+  if (cy >= SIDE) { cy = SIDE - 1; }
+  return cy * SIDE + cx;
+}
+
+fn record(x, y) {
+  seenAt[cellOf(x, y)] = time() + 1;
+  var i = hn % HISTORY;
+  hx[i] = x;
+  hy[i] = y;
+  ht[i] = time();
+  hn++;
+}
+
+// velocity from the last sightings (up to 8, in the last 40 ticks), with a
+// least squares line: it smooths out the radar errors
+fn fitVelocity() {
+  var now = time();
+  var n = 0;
+  var st = 0;
+  var sx = 0;
+  var sy = 0;
+  for (var k = 1; k <= 8 && k <= hn; k++) {
+    var i = (hn - k) % HISTORY;
+    if (now - ht[i] > 40) {
+      break;
+    }
+    n++;
+    st += ht[i];
+    sx += hx[i];
+    sy += hy[i];
+  }
+  vx = 0;
+  vy = 0;
+  if (n < 3) {
+    return;
+  }
+  // sums multiplied by n, to stay with integers
+  var stt = 0;
+  var stx = 0;
+  var sty = 0;
+  for (var k = 1; k <= n; k++) {
+    var i = (hn - k) % HISTORY;
+    var dt = ht[i] * n - st;
+    stt += dt * dt;
+    stx += dt * (hx[i] * n - sx);
+    sty += dt * (hy[i] * n - sy);
+  }
+  if (stt > 0) {
+    vx = stx * 16 / stt;
+    vy = sty * 16 / stt;
+  }
+}
+
+// --- movement ---
+
+fn clamp(v) {
+  if (v < WALL) { return WALL; }
+  if (v > ARENA - WALL) { return ARENA - WALL; }
+  return v;
+}
+
+fn goTo(x, y, pace) {
+  gx = clamp(x);
+  gy = clamp(y);
+  var dx = gx - loc_x();
+  var dy = gy - loc_y();
+  drive(atan2(dy, dx), pace);
+  deadline = time() + (abs(dx) + abs(dy)) / 4 + 20;
+}
+
+fn arrived() {
+  return abs(gx - loc_x()) + abs(gy - loc_y()) < 30 || time() > deadline;
+}
+
+// strategy 0: into a corner, and watch only 90 degrees
+fn playCorner() {
+  var cx = WALL;
+  var cy = WALL;
+  if (corner == 1 || corner == 2) { cx = ARENA - WALL; }
+  if (corner >= 2) { cy = ARENA - WALL; }
+  if (abs(cx - loc_x()) + abs(cy - loc_y()) > 30) {
+    if (time() > deadline) {
+      goTo(cx, cy, 100);
+    }
+    sweepWidth = 360;
+  } else {
+    drive(0, 0);
+    sweepFrom = corner * 90;
+    sweepWidth = 90;
+  }
+}
+
+// strategy 1: round the centre, at half speed so it can keep turning
+fn playCircle() {
+  sweepWidth = 360;
+  if (time() < steerAt) {
+    return;
+  }
+  steerAt = time() + 4;
+  var dx = loc_x() - CENTER;
+  var dy = loc_y() - CENTER;
+  var r = sqrt(dx * dx + dy * dy);
+  var course = atan2(dy, dx) + 90;
+  if (r > 330) { course += 25; }
+  if (r < 270) { course -= 25; }
+  drive(course, 50);
+}
+
+// strategy 2: towards the squares where nobody was seen for the longest time
+fn playQuiet() {
+  sweepWidth = 360;
+  if (!arrived()) {
+    return;
+  }
+  var best = -1;
+  var bx = CENTER;
+  var by = CENTER;
+  for (var k = 0; k < 10; k++) {
+    var x = clamp(rand(ARENA));
+    var y = clamp(rand(ARENA));
+    var age = time() + 1 - seenAt[cellOf(x, y)];
+    if (age > best) {
+      best = age;
+      bx = x;
+      by = y;
+    }
+  }
+  goTo(bx, by, 100);
+}
+
+// strategy 3: after the last robot seen, keeping 250 metres away
+fn playChase() {
+  sweepWidth = 360;
+  if (time() - lastSeenAt > 60) {
+    playQuiet();
+    return;
+  }
+  if (!arrived()) {
+    return;
+  }
+  var tx = loc_x() + lastSeenDist * cos(lastSeenDir) / SCALE;
+  var ty = loc_y() + lastSeenDist * sin(lastSeenDir) / SCALE;
+  var a = lastSeenDir + 150 + rand(60);
+  goTo(tx + 250 * cos(a) / SCALE, ty + 250 * sin(a) / SCALE, 100);
+}
+
+// strategy 4: along the walls, counterclockwise, looking inside
+fn playWalls() {
+  var x = loc_x();
+  var y = loc_y();
+  if (side == 0 && x >= ARENA - WALL - 20) { side = 1; }
+  else if (side == 1 && y >= ARENA - WALL - 20) { side = 2; }
+  else if (side == 2 && x <= WALL + 20) { side = 3; }
+  else if (side == 3 && y <= WALL + 20) { side = 0; }
+  if (time() > deadline) {
+    if (side == 0) { goTo(ARENA, WALL, 70); }
+    if (side == 1) { goTo(ARENA, ARENA, 70); }
+    if (side == 2) { goTo(WALL, ARENA, 70); }
+    if (side == 3) { goTo(WALL, WALL, 70); }
+    deadline = time() + 25;
+  }
+  sweepFrom = side * 90;
+  sweepWidth = 180;
+}
+
+// a quick step sideways when the paint goes up
+fn dodge() {
+  var p = painted();
+  if (p >= lastPaint + 8) {
+    var a = heading() + 90 + 180 * rand(2);
+    goTo(loc_x() + 120 * cos(a) / SCALE, loc_y() + 120 * sin(a) / SCALE, 100);
+  }
+  lastPaint = p;
+}
+
+// --- choosing the strategy ---
+
+// paint taken per turn, in hundredths: the lower the better
+fn cost(s) {
+  return taken[s] * 100 / played[s];
+}
+
+fn nextStrategy() {
+  var p = painted();
+  taken[strategy] += p - paintAtStart;
+  played[strategy]++;
+  var next = -1;
+  // first every strategy gets a turn
+  for (var s = 0; s < STRATEGIES; s++) {
+    if (next < 0 && played[s] == 0) {
+      next = s;
+    }
+  }
+  if (next < 0) {
+    if (rand(5) == 0) {
+      next = rand(STRATEGIES);    // once in a while, try something else
+    } else {
+      next = 0;
+      for (var s = 1; s < STRATEGIES; s++) {
+        if (cost(s) < cost(next)) {
+          next = s;
+        }
+      }
+    }
+  }
+  print("strategy", strategy, "took", p - paintAtStart, "% of paint; next:", next);
+  strategy = next;
+  turnEnd = time() + TURN;
+  paintAtStart = p;
+  corner = rand(4);
+  side = rand(4);
+  deadline = 0;
+}
+
+fn play() {
+  if (strategy == 0) { playCorner(); }
+  else if (strategy == 1) { playCircle(); }
+  else if (strategy == 2) { playQuiet(); }
+  else if (strategy == 3) { playChase(); }
+  else { playWalls(); }
+}
+
+// --- radar and throws ---
+
+fn refine(center) {
+  for (var a = center - 8; a <= center + 8; a += 2) {
+    if (scan(a, 1) > 0) {
+      return a;
+    }
+  }
+  return center;
+}
+
+fn spotted(a, d) {
+  lastSeenDir = a;
+  lastSeenDist = d;
+  lastSeenAt = time();
+  var x = loc_x() + d * cos(a) / SCALE;
+  var y = loc_y() + d * sin(a) / SCALE;
+  record(x, y);
+  fitVelocity();
+  var flight = d / BALLOON_SPEED + 1;
+  var tx = x + vx * flight / 16 - loc_x();
+  var ty = y + vy * flight / 16 - loc_y();
+  var range = sqrt(tx * tx + ty * ty);
+  if (range > 45 && range <= MAX_RANGE) {
+    if (throw(atan2(ty, tx), range)) {
+      throws++;
+      mark(loc_x() + tx, loc_y() + ty);
+    }
+  }
+}
+
+fn look() {
+  if (scan(dir, 10) > 0) {
+    var a = refine(dir);
+    var d = scan(a, 1);
+    if (d > 0) {
+      spotted(a, d);
+    }
+    dir = a;
+    return;
+  }
+  dir += 20;
+  // with a limited sweep, start again from the beginning
+  if (sweepWidth < 360 && (dir - sweepFrom + 720) % 360 > sweepWidth) {
+    dir = sweepFrom;
+  }
+}
+
+fn main() {
+  turnEnd = TURN;
+  corner = rand(4);
+  loop {
+    if (time() >= turnEnd) {
+      nextStrategy();
+    }
+    play();
+    look();
+    dodge();
+  }
+}

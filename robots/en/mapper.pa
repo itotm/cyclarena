@@ -1,0 +1,201 @@
+// Mapper: draws a map of the arena in its memory. It splits the arena into
+// 50 × 50 squares of 20 metres and remembers, for each square, how often it
+// has seen someone there (danger) and how often it has been there itself.
+// It drives towards quiet squares it hasn't visited much, throws at anyone it
+// finds and runs away when it gets painted. Now and then it prints a report.
+// The two maps take 5000 words of memory: too many for the Mini class,
+// it needs Standard.
+
+const CELL = 20;                 // side of a square, in metres
+const SIDE = ARENA / CELL;       // squares per side: 50
+const CELLS = SIDE * SIDE;       // 2500
+const WALL = 60;                 // keep this far from the walls
+const BALLOON_SPEED = 50;        // metres travelled by a balloon in one tick
+
+var danger[CELLS];   // how often someone was seen in each square
+var visits[CELLS];   // how often we went through each square
+
+var dir = 0;          // radar direction
+var gx = 500;         // where we are driving to
+var gy = 500;
+var deadline = 0;     // give up on that destination after this tick
+var lastPaint = 0;    // paint at the last escape
+var fadeAt = 0;       // next square of the maps to fade
+
+// last sighting and estimated velocity (in sixteenths of a metre per tick)
+var lastX = 500;
+var lastY = 500;
+var lastT = -1000;
+var vx = 0;
+var vy = 0;
+
+// statistics for the report
+var throws = 0;
+var sightings = 0;
+var escapes = 0;
+var reportAt = 500;
+var hot = 0;          // the most dangerous square seen so far
+
+// index of the square that contains the point (x, y)
+fn cellOf(x, y) {
+  var cx = x / CELL;
+  var cy = y / CELL;
+  if (cx < 0) { cx = 0; }
+  if (cx >= SIDE) { cx = SIDE - 1; }
+  if (cy < 0) { cy = 0; }
+  if (cy >= SIDE) { cy = SIDE - 1; }
+  return cy * SIDE + cx;
+}
+
+// someone seen in (x, y): danger in that square and, a little less,
+// in the 8 squares around it
+fn addDanger(x, y) {
+  for (var dy = -CELL; dy <= CELL; dy += CELL) {
+    for (var dx = -CELL; dx <= CELL; dx += CELL) {
+      danger[cellOf(x + dx, y + dy)] += 2;
+    }
+  }
+  var c = cellOf(x, y);
+  danger[c] += 4;
+  if (danger[c] > danger[hot]) {
+    hot = c;
+  }
+}
+
+// old information counts less and less: at every turn a few squares fade
+fn fade() {
+  for (var k = 0; k < 3; k++) {
+    if (danger[fadeAt] > 0) {
+      danger[fadeAt]--;
+    }
+    if (visits[fadeAt] > 0) {
+      visits[fadeAt]--;
+    }
+    fadeAt = (fadeAt + 1) % CELLS;
+  }
+}
+
+// how good a square is as a destination: the lower, the better
+fn score(c) {
+  return danger[c] * 4 + visits[c];
+}
+
+fn clamp(v) {
+  if (v < WALL) { return WALL; }
+  if (v > ARENA - WALL) { return ARENA - WALL; }
+  return v;
+}
+
+// drives towards (gx, gy), with a deadline in case it misses the point
+fn goTo() {
+  var dx = gx - loc_x();
+  var dy = gy - loc_y();
+  drive(atan2(dy, dx), 100);
+  deadline = time() + (abs(dx) + abs(dy)) / 5 + 20;
+}
+
+// new destination: tries 8 random points and keeps the quietest one
+fn chooseGoal() {
+  var best = 1000000;
+  for (var k = 0; k < 8; k++) {
+    var x = clamp(rand(ARENA));
+    var y = clamp(rand(ARENA));
+    var s = score(cellOf(x, y)) + rand(3);
+    if (s < best) {
+      best = s;
+      gx = x;
+      gy = y;
+    }
+  }
+  goTo();
+}
+
+// runs away: towards the opposite side of the arena
+fn escape() {
+  escapes++;
+  gx = clamp(ARENA - loc_x() + rand(200) - 100);
+  gy = clamp(ARENA - loc_y() + rand(200) - 100);
+  goTo();
+}
+
+// notes where we are, and checks destination and paint
+fn move() {
+  visits[cellOf(loc_x(), loc_y())]++;
+  if (abs(gx - loc_x()) + abs(gy - loc_y()) < 40 || time() > deadline) {
+    chooseGoal();
+  }
+  var p = painted();
+  if (p >= lastPaint + 10) {
+    lastPaint = p;
+    escape();
+  }
+}
+
+// looks for the precise direction within ±10 degrees with a narrow beam
+fn refine(center) {
+  for (var a = center - 8; a <= center + 8; a += 2) {
+    if (scan(a, 1) > 0) {
+      return a;
+    }
+  }
+  return center;
+}
+
+// someone seen in direction a at distance d: map, velocity, throw
+fn spotted(a, d) {
+  sightings++;
+  var x = loc_x() + d * cos(a) / SCALE;
+  var y = loc_y() + d * sin(a) / SCALE;
+  addDanger(x, y);
+  var now = time();
+  if (now - lastT > 30) {
+    // too old (or the first one): velocity unknown
+    vx = 0;
+    vy = 0;
+  } else if (now - lastT >= 6) {
+    vx = (x - lastX) * 16 / (now - lastT);
+    vy = (y - lastY) * 16 / (now - lastT);
+  }
+  if (now - lastT >= 6) {
+    lastX = x;
+    lastY = y;
+    lastT = now;
+  }
+  // throws where it will be when the balloon arrives
+  var flight = d / BALLOON_SPEED + 1;
+  var tx = x + vx * flight / 16 - loc_x();
+  var ty = y + vy * flight / 16 - loc_y();
+  var range = sqrt(tx * tx + ty * ty);
+  if (range > 45 && range <= MAX_RANGE) {
+    if (throw(atan2(ty, tx), range)) {
+      throws++;
+    }
+  }
+}
+
+fn report() {
+  print("throws", throws, "sightings", sightings, "escapes", escapes, "paint", painted());
+  print("most dangerous square: x", (hot % SIDE) * CELL, "y", (hot / SIDE) * CELL);
+  reportAt = time() + 500;
+}
+
+fn main() {
+  chooseGoal();
+  loop {
+    move();
+    fade();
+    if (scan(dir, 10) > 0) {
+      var a = refine(dir);
+      var d = scan(a, 1);
+      if (d > 0) {
+        spotted(a, d);
+      }
+      dir = a;
+    } else {
+      dir += 20;
+    }
+    if (time() >= reportAt) {
+      report();
+    }
+  }
+}

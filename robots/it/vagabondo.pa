@@ -1,0 +1,27 @@
+// Vagabondo: corre da un punto a caso dell'arena all'altro,
+// e lancia vernice a chiunque incroci il suo radar lungo la strada.
+
+var dir = 0;   // direzione del radar
+var mx = 0;    // meta attuale
+var my = 0;
+
+fn nuovaMeta() {
+  mx = 100 + rand(ARENA - 200);
+  my = 100 + rand(ARENA - 200);
+  drive(atan2(my - loc_y(), mx - loc_x()), 100);
+}
+
+fn main() {
+  nuovaMeta();
+  loop {
+    if (abs(mx - loc_x()) + abs(my - loc_y()) < 60) {
+      nuovaMeta();
+    }
+    var d = scan(dir, 10);
+    if (d > 0 && d <= MAX_RANGE) {
+      throw(dir, d);
+    } else {
+      dir = (dir + 20) % 360;
+    }
+  }
+}

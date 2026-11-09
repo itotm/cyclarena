@@ -1,0 +1,15 @@
+// Sprinkler: stays where it is and keeps turning, like a garden sprinkler.
+// It is the simplest robot that can actually play.
+
+var dir = 0;
+
+fn main() {
+  loop {
+    var d = scan(dir, 10);
+    if (d > 0 && d <= MAX_RANGE) {
+      throw(dir, d);
+    } else {
+      dir = (dir + 20) % 360;
+    }
+  }
+}

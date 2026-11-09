@@ -1,0 +1,50 @@
+// Spirale: gira a spirale attorno al centro dell'arena, allargandola fino a
+// un raggio massimo e poi stringendola di nuovo. Un bersaglio che continua
+// a girare è difficile da colpire.
+// Un robot può sterzare solo al 50% della velocità o meno, quindi la spirale va al 50%.
+
+const CENTRO = ARENA / 2;
+const RAGGIO_MIN = 80;
+const RAGGIO_MAX = 380;
+const PIEGA = 20;    // di quanti gradi la rotta piega verso l'esterno (o l'interno)
+
+var allarga = 1;     // 1 = la spirale si allarga, 0 = si stringe
+var prossima = 0;    // tick della prossima correzione di rotta
+var dir = 0;         // direzione del radar
+
+// correzione di rotta: muoversi ad angolo retto rispetto alla linea dal
+// centro disegna un cerchio; piegare un po' verso l'esterno (o l'interno)
+// lo trasforma in una spirale
+fn sterza() {
+  var dx = loc_x() - CENTRO;
+  var dy = loc_y() - CENTRO;
+  var r = sqrt(dx * dx + dy * dy);
+  if (r > RAGGIO_MAX) { allarga = 0; }
+  if (r < RAGGIO_MIN) { allarga = 1; }
+  var rotta = atan2(dy, dx) + 90;   // in senso antiorario attorno al centro
+  if (allarga) {
+    rotta -= PIEGA;
+  } else if (r > RAGGIO_MAX + 60) {
+    rotta += 70;       // ancora lontano (all'inizio): punta quasi dritto verso il centro
+  } else {
+    rotta += PIEGA;
+  }
+  drive(rotta, 50);
+}
+
+fn main() {
+  loop {
+    // sterzare costa circa 40 cicli: basta una volta ogni 3 tick,
+    // il resto del tempo va al radar
+    if (time() >= prossima) {
+      sterza();
+      prossima = time() + 3;
+    }
+    var d = scan(dir, 10);
+    if (d > 0 && d <= MAX_RANGE) {
+      throw(dir, d);
+    } else {
+      dir = (dir + 20) % 360;
+    }
+  }
+}

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="paintarena: program a robot that plays with paint balloons, where every instruction costs cycles. Inspired by Tom Poindexter's CROBOTS (1985)." />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <title>paintarena</title>
+    <script>
+      // theme before the first paint, to avoid a light flash
+      try {
+        var m = localStorage.getItem("paintarena.theme");
+        var dark = m === "dark" || (m !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

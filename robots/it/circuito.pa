@@ -1,0 +1,50 @@
+// Circuito: fa il giro dell'arena lungo i muri, in senso antiorario.
+// Vicino a un muro gli altri possono essere da una parte sola, quindi il
+// radar spazza solo i 180 gradi rivolti verso l'interno dell'arena.
+
+const MARGINE = 40;           // distanza dai muri (sono verniciati di fresco)
+const LONTANO = ARENA - MARGINE;
+const FRENATA = 50;           // comincia a frenare a questi metri da un angolo
+
+var lato = 3;    // direzione di marcia / 90: 0 = est, 1 = nord, 2 = ovest, 3 = sud
+var giro = 0;    // angolo del radar, da 0 (dritto davanti) a 180 (dritto dietro)
+var frena = 0;
+
+// metri che mancano al prossimo angolo
+fn allAngolo() {
+  if (lato == 0) { return LONTANO - loc_x(); }
+  if (lato == 1) { return LONTANO - loc_y(); }
+  if (lato == 2) { return loc_x() - MARGINE; }
+  return loc_y() - MARGINE;
+}
+
+fn main() {
+  // parte verso sud: quando arriva al muro in basso gira verso est,
+  // e da lì in poi segue i muri
+  drive(lato * 90, 100);
+  loop {
+    var manca = allAngolo();
+    if (manca <= 0) {
+      // angolo: gira a sinistra. Si può sterzare solo al 50% o meno, e
+      // abbiamo già rallentato
+      lato = (lato + 1) % 4;
+      frena = 0;
+      drive(lato * 90, 100);
+    } else if (manca < FRENATA && !frena) {
+      frena = 1;
+      drive(lato * 90, 40);
+    }
+
+    // l'interno dell'arena è alla nostra sinistra: da lato*90 a lato*90 + 180
+    var dir = lato * 90 + giro;
+    var d = scan(dir, 10);
+    if (d > 0 && d <= MAX_RANGE) {
+      throw(dir, d);
+    } else {
+      giro += 20;
+      if (giro > 180) {
+        giro = 0;
+      }
+    }
+  }
+}

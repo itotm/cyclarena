@@ -1,0 +1,201 @@
+// Cartografo: disegna nella sua memoria una mappa dell'arena. Divide
+// l'arena in 50 × 50 quadretti di 20 metri e si ricorda, per ognuno, quante
+// volte ci ha visto qualcuno (pericolo) e quante volte ci è passato lui.
+// Va verso i quadretti tranquilli dove è passato poco, lancia a chiunque
+// trovi e scappa quando lo colorano. Ogni tanto scrive un resoconto.
+// Le due mappe occupano 5000 parole di memoria: troppe per la classe Mini,
+// serve la Standard.
+
+const CELLA = 20;                // lato di un quadretto, in metri
+const LATO = ARENA / CELLA;      // quadretti per lato: 50
+const CELLE = LATO * LATO;       // 2500
+const MURO = 60;                 // resta almeno a questa distanza dai muri
+const VEL_GAVETTONE = 50;        // metri percorsi da un gavettone in un tick
+
+var pericolo[CELLE];   // quante volte è stato visto qualcuno in ogni quadretto
+var visite[CELLE];     // quante volte siamo passati da ogni quadretto
+
+var dir = 0;          // direzione del radar
+var mx = 500;         // dove stiamo andando
+var my = 500;
+var scadenza = 0;     // dopo questo tick si rinuncia a quella meta
+var vernicePrima = 0; // vernice all'ultima fuga
+var daSfumare = 0;    // prossimo quadretto delle mappe da sfumare
+
+// ultimo avvistamento e velocità stimata (in sedicesimi di metro per tick)
+var ultimaX = 500;
+var ultimaY = 500;
+var ultimoT = -1000;
+var vx = 0;
+var vy = 0;
+
+// statistiche per il resoconto
+var lanci = 0;
+var avvistamenti = 0;
+var fughe = 0;
+var resocontoAl = 500;
+var caldo = 0;        // il quadretto più pericoloso visto finora
+
+// indice del quadretto che contiene il punto (x, y)
+fn cellaDi(x, y) {
+  var cx = x / CELLA;
+  var cy = y / CELLA;
+  if (cx < 0) { cx = 0; }
+  if (cx >= LATO) { cx = LATO - 1; }
+  if (cy < 0) { cy = 0; }
+  if (cy >= LATO) { cy = LATO - 1; }
+  return cy * LATO + cx;
+}
+
+// qualcuno visto in (x, y): pericolo in quel quadretto e, un po' meno,
+// negli 8 quadretti intorno
+fn aggiungiPericolo(x, y) {
+  for (var dy = -CELLA; dy <= CELLA; dy += CELLA) {
+    for (var dx = -CELLA; dx <= CELLA; dx += CELLA) {
+      pericolo[cellaDi(x + dx, y + dy)] += 2;
+    }
+  }
+  var c = cellaDi(x, y);
+  pericolo[c] += 4;
+  if (pericolo[c] > pericolo[caldo]) {
+    caldo = c;
+  }
+}
+
+// le informazioni vecchie contano sempre meno: a ogni giro qualche quadretto sfuma
+fn sfuma() {
+  for (var k = 0; k < 3; k++) {
+    if (pericolo[daSfumare] > 0) {
+      pericolo[daSfumare]--;
+    }
+    if (visite[daSfumare] > 0) {
+      visite[daSfumare]--;
+    }
+    daSfumare = (daSfumare + 1) % CELLE;
+  }
+}
+
+// quanto è buono un quadretto come meta: più è basso, meglio è
+fn punteggio(c) {
+  return pericolo[c] * 4 + visite[c];
+}
+
+fn limita(v) {
+  if (v < MURO) { return MURO; }
+  if (v > ARENA - MURO) { return ARENA - MURO; }
+  return v;
+}
+
+// va verso (mx, my), con una scadenza nel caso manchi il punto
+fn vaiVerso() {
+  var dx = mx - loc_x();
+  var dy = my - loc_y();
+  drive(atan2(dy, dx), 100);
+  scadenza = time() + (abs(dx) + abs(dy)) / 5 + 20;
+}
+
+// nuova meta: prova 8 punti a caso e tiene il più tranquillo
+fn scegliMeta() {
+  var migliore = 1000000;
+  for (var k = 0; k < 8; k++) {
+    var x = limita(rand(ARENA));
+    var y = limita(rand(ARENA));
+    var p = punteggio(cellaDi(x, y)) + rand(3);
+    if (p < migliore) {
+      migliore = p;
+      mx = x;
+      my = y;
+    }
+  }
+  vaiVerso();
+}
+
+// scappa: verso la parte opposta dell'arena
+fn scappa() {
+  fughe++;
+  mx = limita(ARENA - loc_x() + rand(200) - 100);
+  my = limita(ARENA - loc_y() + rand(200) - 100);
+  vaiVerso();
+}
+
+// segna dove siamo, e controlla meta e vernice
+fn muoviti() {
+  visite[cellaDi(loc_x(), loc_y())]++;
+  if (abs(mx - loc_x()) + abs(my - loc_y()) < 40 || time() > scadenza) {
+    scegliMeta();
+  }
+  var v = painted();
+  if (v >= vernicePrima + 10) {
+    vernicePrima = v;
+    scappa();
+  }
+}
+
+// cerca la direzione precisa entro ±10 gradi con un fascio stretto
+fn affina(centro) {
+  for (var a = centro - 8; a <= centro + 8; a += 2) {
+    if (scan(a, 1) > 0) {
+      return a;
+    }
+  }
+  return centro;
+}
+
+// qualcuno visto in direzione a a distanza d: mappa, velocità, lancio
+fn avvistato(a, d) {
+  avvistamenti++;
+  var x = loc_x() + d * cos(a) / SCALE;
+  var y = loc_y() + d * sin(a) / SCALE;
+  aggiungiPericolo(x, y);
+  var ora = time();
+  if (ora - ultimoT > 30) {
+    // troppo vecchio (o il primo): velocità sconosciuta
+    vx = 0;
+    vy = 0;
+  } else if (ora - ultimoT >= 6) {
+    vx = (x - ultimaX) * 16 / (ora - ultimoT);
+    vy = (y - ultimaY) * 16 / (ora - ultimoT);
+  }
+  if (ora - ultimoT >= 6) {
+    ultimaX = x;
+    ultimaY = y;
+    ultimoT = ora;
+  }
+  // lancia dove sarà quando arriva il gavettone
+  var volo = d / VEL_GAVETTONE + 1;
+  var bx = x + vx * volo / 16 - loc_x();
+  var by = y + vy * volo / 16 - loc_y();
+  var gittata = sqrt(bx * bx + by * by);
+  if (gittata > 45 && gittata <= MAX_RANGE) {
+    if (throw(atan2(by, bx), gittata)) {
+      lanci++;
+    }
+  }
+}
+
+fn resoconto() {
+  print("lanci", lanci, "avvistamenti", avvistamenti, "fughe", fughe, "vernice", painted());
+  print("quadretto più pericoloso: x", (caldo % LATO) * CELLA, "y", (caldo / LATO) * CELLA);
+  resocontoAl = time() + 500;
+}
+
+fn main() {
+  scegliMeta();
+  loop {
+    muoviti();
+    sfuma();
+    if (scan(dir, 10) > 0) {
+      var a = affina(dir);
+      var d = scan(a, 1);
+      if (d > 0) {
+        avvistato(a, d);
+      }
+      dir = a;
+    } else {
+      dir += 20;
+    }
+    if (time() >= resocontoAl) {
+      resoconto();
+    }
+  }
+}
