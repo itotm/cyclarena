@@ -17,17 +17,18 @@
   import { lintGutter, setDiagnostics, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
   import { message, type Diagnostic, type Lang } from "@paintarena/engine";
   import { paHighlight, paLanguage } from "./palang.ts";
-  import { paIde, ideLang, PHRASES_IT } from "./paide.ts";
+  import { paIde, ideBasic, ideLang, PHRASES_IT } from "./paide.ts";
 
   interface Props {
     value: string;
     diagnostics: Diagnostic[];
     costs: CostInfo;
     lang: Lang;
-    costTitle: string;
+    /** Basic path (no trigonometry): changes the order of the suggestions. */
+    basic?: boolean;
   }
 
-  let { value = $bindable(), diagnostics, costs, lang, costTitle }: Props = $props();
+  let { value = $bindable(), diagnostics, costs, lang, basic = false }: Props = $props();
 
   const setCosts = StateEffect.define<CostInfo>();
   const costField = StateField.define<CostInfo>({
@@ -78,6 +79,8 @@
     EditorView.contentAttributes.of({ "aria-label": l === "it" ? "Codice del robot" : "Robot code" }),
   ];
 
+  const basicConf = new Compartment();
+
   // the editor is created only once: the initial text is read without
   // dependencies (untrack), otherwise every keystroke would recreate the
   // editor, making it lose focus
@@ -101,6 +104,7 @@
           paLanguage,
           paHighlight,
           langConf.of(langExt(untrack(() => lang))),
+          basicConf.of(ideBasic.of(untrack(() => basic))),
           paIde(),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
           EditorView.updateListener.of((u) => {
@@ -139,9 +143,13 @@
   $effect(() => {
     view?.dispatch({ effects: langConf.reconfigure(langExt(lang)) });
   });
+
+  $effect(() => {
+    view?.dispatch({ effects: basicConf.reconfigure(ideBasic.of(basic)) });
+  });
 </script>
 
-<div class="editor h-full min-h-80 overflow-hidden rounded-panel border border-line bg-surface" {@attach attach} title={costTitle}></div>
+<div class="editor h-full min-h-80 overflow-hidden rounded-panel border border-line bg-surface" {@attach attach}></div>
 
 <style>
   .editor :global {
@@ -165,6 +173,7 @@
     .pa-info-head { display: block; font-family: var(--font-mono); font-size: 0.82rem; font-weight: 700; color: var(--syn-builtin); }
     .pa-info-sub { margin-top: 0.1rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); }
     .pa-info-body { margin-top: 0.3rem; line-height: 1.45; }
+    .pa-info-equiv { display: block; margin-top: 0.35rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); white-space: pre-wrap; }
     .pa-sig { padding: 0.2rem 0.55rem; font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted); }
     .pa-sig-on { color: var(--accent); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
     .pa-sig-cost { color: var(--text-dim); }

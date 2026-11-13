@@ -1,0 +1,94 @@
+// Marksman: works out where the target is with point_x and point_y, measures
+// how fast it moves and throws at the point where it will be. It only uses
+// coordinates: no trigonometry needed. Meanwhile it runs from one random
+// point to another: a robot that moves is harder to hit.
+// mark() draws in the arena the point it is aiming at.
+
+const BALLOON_SPEED = 50;   // metres travelled by a balloon in one tick
+const RELOAD = 15;          // ticks needed between two throws
+
+var dir = 0;        // direction of the radar
+var reloaded = 0;   // tick when we can throw again
+
+// position of the target at the last measurement, and when it was taken
+var tx = 0;
+var ty = 0;
+var pt = -1;        // -1 = no measurement yet
+
+// velocity of the target, in tenths of a metre per tick
+// (the language only has integers: this way we keep some precision)
+var vx = 0;
+var vy = 0;
+
+var gx = 0;         // where we are running to
+var gy = 0;
+
+fn newGoal() {
+  // a random point at least 100 m from the walls
+  gx = 100 + rand(800);
+  gy = 100 + rand(800);
+  drive_to(gx, gy, 100);
+}
+
+// narrows the radar beam around dir, halving the cone each time,
+// and returns the distance of the target (0 if it is not there)
+fn lock() {
+  var d = scan(dir, 10);
+  if (d == 0) {
+    return 0;
+  }
+  if (scan(dir - 5, 5) > 0) { dir -= 5; } else { dir += 5; }
+  if (scan(dir - 3, 3) > 0) { dir -= 2; } else { dir += 2; }
+  if (scan(dir - 1, 1) > 0) { dir -= 1; } else { dir += 1; }
+  var d2 = scan(dir, 1);
+  if (d2 > 0) {
+    return d2;
+  }
+  return d;
+}
+
+// position of the target and, comparing it with the previous one, its velocity
+fn track(d) {
+  var x = point_x(dir, d);
+  var y = point_y(dir, d);
+  var now = time();
+  if (pt < 0 || now - pt > 40) {
+    vx = 0;   // first measurement (or a very old one): velocity unknown
+    vy = 0;
+  } else if (now - pt >= 8) {
+    // velocity = distance travelled / time, over at least 8 ticks
+    vx = (x - tx) * 10 / (now - pt);
+    vy = (y - ty) * 10 / (now - pt);
+  } else {
+    return;   // too soon: keep the previous measurement
+  }
+  tx = x;
+  ty = y;
+  pt = now;
+}
+
+fn main() {
+  newGoal();
+  loop {
+    if (dist_to(gx, gy) < 60) {
+      newGoal();
+    }
+    var d = lock();
+    if (d > 0) {
+      track(d);
+      if (time() >= reloaded) {
+        // where the target will be when the balloon gets there
+        var flight = d / BALLOON_SPEED + (time() - pt) + 1;
+        var ax = tx + vx * flight / 10;
+        var ay = ty + vy * flight / 10;
+        // within 40 m the splash would paint us too
+        if (dist_to(ax, ay) > 40 && throw_at(ax, ay)) {
+          reloaded = time() + RELOAD;
+          mark(ax, ay);
+        }
+      }
+    } else {
+      dir += 20;   // nobody there: turn the radar
+    }
+  }
+}

@@ -101,6 +101,8 @@ export function compile(source: string, rules: Rules = RULES_V0): CompileResult 
   const err = (code: string, args: MsgArg[], p: { line: number; col: number; end: number }): never => {
     throw new CompileError(code, args, p.line, p.col, p.end);
   };
+  const argsError = (name: string, want: number, got: number, p: { line: number; col: number; end: number }): never =>
+    err(want === 1 ? "E_ARGS_ONE" : "E_ARGS", [name, want, got], p);
   const warn = (code: string, args: (string | number)[], p: { line: number; col: number; end: number }) => {
     diagnostics.push({ severity: "warning", code, args, line: p.line, col: p.col, endCol: Math.max(p.end, p.col + 1) });
   };
@@ -284,7 +286,7 @@ export function compile(source: string, rules: Rules = RULES_V0): CompileResult 
         emit(Op.SYS, Sys.print, formats.length - 1);
         depth += 1 - values;
       } else {
-        if (e.args.length !== b.params.length) err("E_ARGS", [e.name, b.params.length, e.args.length], e.pos);
+        if (e.args.length !== b.params.length) argsError(e.name, b.params.length, e.args.length, e.pos);
         for (const a of e.args) genExpr(a);
         curLine = e.pos.line;
         const at = emit(Op.SYS, b.id);
@@ -300,7 +302,7 @@ export function compile(source: string, rules: Rules = RULES_V0): CompileResult 
     if (!s) unknown(e.name, e.pos);
     if (s!.kind !== "fn") err("E_NOT_FUNC", [e.name], e.pos);
     const fn = s as FnSym;
-    if (e.args.length !== fn.decl.params.length) err("E_ARGS", [e.name, fn.decl.params.length, e.args.length], e.pos);
+    if (e.args.length !== fn.decl.params.length) argsError(e.name, fn.decl.params.length, e.args.length, e.pos);
     for (const a of e.args) genExpr(a);
     curLine = e.pos.line;
     maxDepth = Math.max(maxDepth, depth + 2); // return address and saved fp

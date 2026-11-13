@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy, untrack } from "svelte";
   import { compile, message, MIN_STACK, recordMatch, ROBOT_CLASSES, rulesForClass, smallestClass, type Entrant, type Replay, type RobotClassId } from "@paintarena/engine";
   import Editor, { type CostInfo } from "./Editor.svelte";
   import Arena from "./Arena.svelte";
@@ -8,7 +9,7 @@
   import { library, resolveRef, sampleRef, userRef, type RobotRef } from "./library.svelte.ts";
   import RobotBar from "./RobotBar.svelte";
   import { load, save } from "./storage.ts";
-  import { MISSIONS, missionOpponents, missionRules, playMission, type Mission } from "./missions.ts";
+  import { forbiddenCalls, missionOpponents, missionRules, missionsFor, playMission, type Mission } from "./missions.ts";
   import { progress } from "./progress.svelte.ts";
   import { theme } from "./theme.svelte.ts";
   import { STAIN_TICKS, WALL_PAINT, type Hit } from "./robotArt.ts";
@@ -30,7 +31,9 @@
   // mission changes) ---
   // svelte-ignore state_referenced_locally
   const m = mission;
-  const sourceKey = m ? "mission." + m.id : "";
+  // in the basic path a mission with its own starter code keeps its own code
+  const basicStarter = !!m?.basic?.starter && progress.path === "basic";
+  const sourceKey = m ? "mission." + m.id + (basicStarter ? ".basic" : "") : "";
   const starter = () => (m && m.starter[i18n.lang]) || sample("first")!.source;
   let source = $state(m ? (load(sourceKey) ?? starter()) : library.current.source);
   // class (code and memory limits): chosen in free play, Standard in missions
@@ -43,19 +46,41 @@
   const errorCount = $derived(compiled.diagnostics.filter((d) => d.severity === "error").length);
   const warningCount = $derived(compiled.diagnostics.length - errorCount);
   const firstError = $derived(compiled.diagnostics.find((d) => d.severity === "error"));
+  // functions the mission does not allow (it teaches what they do)
+  const forbidden = $derived(m ? forbiddenCalls(m, source) : []);
+  const canFight = $derived(compiled.ok && !forbidden.length);
 
+  // the robot whose code is in the editor: the code is saved there even if
+  // the library has meanwhile chosen another robot (an import ends later)
+  let editingId = m ? "" : library.current.id;
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
-  $effect(() => {
-    // save the code on every change (delayed)
-    const s = source;
-    if (!m) { library.setSource(library.currentId, s); return; }
+  let pending: string | null = null;
+  function flushMission() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => save(sourceKey, s), 400);
-    return () => clearTimeout(saveTimer);
+    if (pending !== null) save(sourceKey, pending);
+    pending = null;
+  }
+  $effect(() => {
+    // save the code on every change (delayed); only `source` is tracked
+    const s = source;
+    untrack(() => {
+      if (!m) { library.setSource(editingId, s); return; }
+      // the untouched starter code is not saved: it follows the language
+      if (s === starter() && load(sourceKey) === null) return;
+      pending = s;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(flushMission, 400);
+    });
   });
+  // leaving the mission, or closing the page, saves what has been typed
+  onDestroy(flushMission);
+  function onPageHidden() {
+    if (document.visibilityState === "hidden") flushMission();
+  }
 
   // robot changed in the library: the editor restarts with its code
   function onLibraryChange() {
+    editingId = library.current.id;
     source = library.current.source;
   }
 
@@ -117,7 +142,8 @@
   let missionOk = $state<boolean | null>(null);
   let tick = $state(0);
   let playing = $state(false);
-  let speed = $state(Number(load("speed") ?? 1));
+  const savedSpeed = Number(load("speed"));
+  let speed = $state(SPEEDS.includes(savedSpeed) ? savedSpeed : 1);
   let hintsShown = $state(0);
 
   const frame = $derived(replay ? replay.frames[Math.min(tick, replay.frames.length - 1)] : null);
@@ -127,7 +153,7 @@
 
   function fight() {
     if (m) {
-      if (!compiled.ok) return;
+      if (!canFight) return;
       const me: Entrant = { name: t("myRobot"), program: compiled.program! };
       matchColors = COLORS;
       editorIndex = 0;
@@ -293,11 +319,13 @@
     return Math.max(240, Math.floor(Math.min(slotH, maxByWidth)));
   });
 
-  const index = $derived(m ? MISSIONS.indexOf(m) : -1);
-  const next = $derived(index >= 0 && index + 1 < MISSIONS.length ? MISSIONS[index + 1] : null);
+  const pathMissions = $derived(missionsFor(progress.path));
+  const index = $derived(m ? pathMissions.findIndex((x) => x.id === m.id) : -1);
+  const next = $derived(index >= 0 && index + 1 < pathMissions.length ? pathMissions[index + 1] : null);
 </script>
 
-<svelte:window bind:innerWidth />
+<svelte:window bind:innerWidth onpagehide={flushMission} />
+<svelte:document onvisibilitychange={onPageHidden} />
 
 {#snippet usage(label: string, used: number, max: number)}
   {@const unlimited = max >= 100_000}
@@ -332,7 +360,7 @@
       ondragleave={() => (dragging = false)}
       ondrop={dropFiles}>
       {#key m ? "" : library.currentId}
-        <Editor bind:value={source} diagnostics={compiled.diagnostics} {costs} lang={i18n.lang} costTitle="" />
+        <Editor bind:value={source} diagnostics={compiled.diagnostics} {costs} lang={i18n.lang} basic={progress.path === "basic"} />
       {/key}
     </div>
     <div class={["flex min-h-6 flex-wrap items-center gap-x-4 gap-y-1 text-[0.8rem]", errorCount > 0 ? "text-bad" : "text-muted"]}>
@@ -341,6 +369,9 @@
       {:else if firstError}
         <span class="size-[7px] flex-none rounded-full bg-bad shadow-[0_0_6px_var(--bad)]"></span>
         {t("errors", errorCount)} — {t("line")} {firstError.line}: {message(firstError.code, firstError.args, i18n.lang)}
+      {:else if forbidden.length}
+        <span class="size-[7px] flex-none rounded-full bg-bad shadow-[0_0_6px_var(--bad)]"></span>
+        <span class="text-bad">{t("forbidden", forbidden.join(", "))}</span>
       {:else if compiled.program}
         <span class="size-[7px] flex-none rounded-full bg-ok shadow-[0_0_6px_var(--ok)]"></span>
         {@render usage(t("codeUsage"), compiled.program.size, rules.maxCodeSize)}
@@ -377,8 +408,8 @@
           </span>
         {/each}
       {/if}
-      <button class="btn-primary" onclick={fight} disabled={m ? !compiled.ok : readyCount < 2}
-        title={m ? (compiled.ok ? "" : t("fixErrors")) : readyCount < 2 ? t("needTwo") : ""}>{t("fight")}</button>
+      <button class="btn-primary" onclick={fight} disabled={m ? !canFight : readyCount < 2}
+        title={m ? (!compiled.ok ? t("fixErrors") : forbidden.length ? t("forbidden", forbidden.join(", ")) : "") : readyCount < 2 ? t("needTwo") : ""}>{t("fight")}</button>
     </div>
 
     <div class="min-w-0 xl:min-h-0 xl:flex-1" bind:clientWidth={slotW} bind:clientHeight={slotH}>

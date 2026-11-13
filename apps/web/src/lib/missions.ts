@@ -15,15 +15,31 @@ export interface Opponent {
 
 export type MissionGroup = "move" | "see" | "throw" | "play";
 
-export interface Mission {
-  id: string;
-  group: MissionGroup;
+/**
+ * Learning path: "basic" for those who have not studied trigonometry yet (it
+ * uses dir_to, point_x, drive_to…), "advanced" with atan2, sin and cos.
+ */
+export type LearnPath = "basic" | "advanced";
+
+/** The texts of a mission that can change with the path. */
+export interface MissionTexts {
   title: Text;
   /** Explanation: paragraphs separated by a blank line; `code` in backticks. */
   intro: Text;
   goal: Text;
   hints: Text[];
   starter: Text;
+  /** System functions that may not be used (the mission teaches what they do). */
+  forbid?: string[];
+}
+
+export interface Mission extends MissionTexts {
+  id: string;
+  group: MissionGroup;
+  /** Texts of the basic path, where they differ. */
+  basic?: Partial<MissionTexts>;
+  /** Mission shown only in one path. */
+  only?: LearnPath;
   opponents: Opponent[];
   positions?: ({ x: number; y: number } | null)[];
   /** Starting paint of each robot. */
@@ -75,6 +91,45 @@ const S = RULES_V0.splash;
 const splashIt = S.map((l) => `${l.paint}% entro ${l.range} metri`).join(", ");
 const splashEn = S.map((l) => `${l.paint}% within ${l.range} metres`).join(", ");
 
+const WHERE_STARTER: Text = {
+  it: `// Missione: segna con mark() dove si trova il bersaglio.
+
+var dir = 0;
+
+fn main() {
+  loop {
+    var d = scan(dir, 10);
+    if (d > 0) {
+      print("visto a", d, "metri in direzione", dir);
+      // calcola x e y del bersaglio e segnale con mark(x, y)
+    }
+    dir = (dir + 20) % 360;
+  }
+}
+`,
+  en: `// Mission: mark() where the target is.
+
+var dir = 0;
+
+fn main() {
+  loop {
+    var d = scan(dir, 10);
+    if (d > 0) {
+      print("seen at", d, "metres, direction", dir);
+      // work out the x and y of the target and mark(x, y) them
+    }
+    dir = (dir + 20) % 360;
+  }
+}
+`,
+};
+
+const WHERE_HINTS: Text[] = [
+  { it: "Con un radar largo ±10 gradi la direzione è troppo imprecisa: a 570 metri l'errore può superare i 90 metri.", en: "With a ±10 degree radar the direction is too rough: at 570 metres the error can be over 90 metres." },
+  { it: "Usa scan(dir, 1) e gira il radar di 2 gradi alla volta: la direzione sarà giusta entro un grado.", en: "Use scan(dir, 1) and turn the radar 2 degrees at a time: the direction will be right within one degree." },
+  { it: "Quando d > 0: mark(loc_x() + d * cos(dir) / SCALE, loc_y() + d * sin(dir) / SCALE);", en: "When d > 0: mark(loc_x() + d * cos(dir) / SCALE, loc_y() + d * sin(dir) / SCALE);" },
+];
+
 type Z = { x: number; y: number; r: number };
 const near = (rx: number, ry: number, z: Z) => Math.hypot(rx - z.x, ry - z.y) <= z.r;
 const won = (rep: Replay) => rep.result.winner === 0;
@@ -120,6 +175,17 @@ fn main() {
   drive(0, 100);   // heads east... but the flag is not east!
 }
 `,
+    },
+    basic: {
+      intro: {
+        it: "Un robot si muove con `drive(direzione, velocità)`. La direzione è in gradi: 0 è est (destra), 90 è nord (su), 180 ovest, 270 sud. La velocità va da 0 a 100.\n\nIl robot resta in movimento finché non gli dai un altro comando, anche quando il programma è finito.\n\nL'arena è come un foglio a quadretti: ogni punto ha una x (quanto è a destra) e una y (quanto è in alto), in metri, da 0 a 1000. Per andare verso un punto c'è `drive_to(x, y, velocità)`: la direzione giusta la calcola lei.",
+        en: "A robot moves with `drive(direction, speed)`. Direction is in degrees: 0 is east (right), 90 is north (up), 180 west, 270 south. Speed goes from 0 to 100.\n\nThe robot keeps moving until you give it another command, even after the program has ended.\n\nThe arena is like squared paper: every point has an x (how far right) and a y (how far up), in metres, from 0 to 1000. To head for a point use `drive_to(x, y, speed)`: it works out the right direction by itself.",
+      },
+      hints: [
+        { it: "Il robot parte da (150, 150): la bandiera è in alto a destra, in (750, 600).", en: "The robot starts at (150, 150): the flag is up and to the right, at (750, 600)." },
+        { it: "Al posto di drive(0, 100) usa drive_to con le coordinate della bandiera.", en: "Instead of drive(0, 100) use drive_to with the coordinates of the flag." },
+        { it: "Soluzione: drive_to(750, 600, 100);", en: "Solution: drive_to(750, 600, 100);" },
+      ],
     },
     opponents: [],
     positions: [{ x: 150, y: 150 }],
@@ -228,6 +294,49 @@ fn main() {
 }
 `,
     },
+    basic: {
+      hints: [
+        { it: "Le bandiere sono in (300, 200), (800, 300), (700, 800) e (200, 700).", en: "The flags are at (300, 200), (800, 300), (700, 800) and (200, 700)." },
+        { it: "Ricalcola la direzione a ogni tick, dentro un loop: drive_to(bx[i], by[i], 100);", en: "Work out the direction again every tick, inside a loop: drive_to(fx[i], fy[i], 100);" },
+        { it: "Sei arrivato quando dist_to(bx[i], by[i]) < 20: allora i++ (e dopo l'ultima, fermati).", en: "You have arrived when dist_to(fx[i], fy[i]) < 20: then i++ (and after the last one, stop)." },
+      ],
+      starter: {
+        it: `// Missione: tocca le quattro bandiere nell'ordine.
+
+var bx[4];   // coordinate delle bandiere
+var by[4];
+
+fn main() {
+  bx[0] = 300;
+  by[0] = 200;
+  // completa le altre tre: (800, 300), (700, 800), (200, 700)
+
+  var i = 0;   // la bandiera a cui stiamo andando
+  drive_to(bx[i], by[i], 100);
+  loop {
+    yield();
+  }
+}
+`,
+        en: `// Mission: touch the four flags in order.
+
+var fx[4];   // coordinates of the flags
+var fy[4];
+
+fn main() {
+  fx[0] = 300;
+  fy[0] = 200;
+  // fill in the other three: (800, 300), (700, 800), (200, 700)
+
+  var i = 0;   // the flag we are heading for
+  drive_to(fx[i], fy[i], 100);
+  loop {
+    yield();
+  }
+}
+`,
+      },
+    },
     opponents: [],
     positions: [{ x: 100, y: 100 }],
     rules: { maxTicks: 1000 },
@@ -298,43 +407,41 @@ fn main() {
       en: "The radar gives a direction and a distance. To get the x, y coordinates of the robot you saw you need a little trigonometry:\n\n`x = loc_x() + d * cos(dir) / SCALE` and `y = loc_y() + d * sin(dir) / SCALE`\n\n`cos` and `sin` return integers multiplied by SCALE (10000), because the language has no decimal numbers: that's why you divide by SCALE.\n\n`mark(x, y)` draws a small cross in the arena: it shows where the robot “thinks” something is.",
     },
     goal: { it: "Metti un mark() a meno di 15 metri dal bersaglio, entro 300 tick.", en: "Put a mark() less than 15 metres from the target, within 300 ticks." },
-    hints: [
-      { it: "Con un radar largo ±10 gradi la direzione è troppo imprecisa: a 570 metri l'errore può superare i 90 metri.", en: "With a ±10 degree radar the direction is too rough: at 570 metres the error can be over 90 metres." },
-      { it: "Usa scan(dir, 1) e gira il radar di 2 gradi alla volta: la direzione sarà giusta entro un grado.", en: "Use scan(dir, 1) and turn the radar 2 degrees at a time: the direction will be right within one degree." },
-      { it: "Quando d > 0: mark(loc_x() + d * cos(dir) / SCALE, loc_y() + d * sin(dir) / SCALE);", en: "When d > 0: mark(loc_x() + d * cos(dir) / SCALE, loc_y() + d * sin(dir) / SCALE);" },
-    ],
-    starter: {
-      it: `// Missione: segna con mark() dove si trova il bersaglio.
-
-var dir = 0;
-
-fn main() {
-  loop {
-    var d = scan(dir, 10);
-    if (d > 0) {
-      print("visto a", d, "metri in direzione", dir);
-      // calcola x e y del bersaglio e segnale con mark(x, y)
-    }
-    dir = (dir + 20) % 360;
-  }
-}
-`,
-      en: `// Mission: mark() where the target is.
-
-var dir = 0;
-
-fn main() {
-  loop {
-    var d = scan(dir, 10);
-    if (d > 0) {
-      print("seen at", d, "metres, direction", dir);
-      // work out the x and y of the target and mark(x, y) them
-    }
-    dir = (dir + 20) % 360;
-  }
-}
-`,
+    hints: WHERE_HINTS,
+    starter: WHERE_STARTER,
+    forbid: ["point_x", "point_y"],
+    basic: {
+      intro: {
+        it: "Il radar dà una direzione e una distanza: «c'è un robot a 570 metri, in direzione 40 gradi». Per sapere le coordinate x, y di quel punto ci sono `point_x(direzione, distanza)` e `point_y(direzione, distanza)`: partono dalla posizione del tuo robot e fanno quei metri in quella direzione.\n\n`mark(x, y)` disegna una crocetta nell'arena: serve a vedere dove il robot «pensa» che sia qualcosa.",
+        en: "The radar gives a direction and a distance: “there is a robot 570 metres away, direction 40 degrees”. To get the x, y coordinates of that point use `point_x(direction, distance)` and `point_y(direction, distance)`: they start from your robot's position and go that many metres in that direction.\n\n`mark(x, y)` draws a small cross in the arena: it shows where the robot “thinks” something is.",
+      },
+      hints: [
+        WHERE_HINTS[0],
+        WHERE_HINTS[1],
+        { it: "Quando d > 0: mark(point_x(dir, d), point_y(dir, d));", en: "When d > 0: mark(point_x(dir, d), point_y(dir, d));" },
+      ],
+      forbid: [],
     },
+    opponents: [{ name: TARGET, source: STILL }],
+    positions: [{ x: 300, y: 250 }, HIDDEN],
+    rules: { maxTicks: 300 },
+    until: () => (m) => m.events.some((e) => e.t === "mark" && e.robot === 0 && Math.hypot(e.x - HIDDEN.x, e.y - HIDDEN.y) < 15),
+    check: (rep) => rep.frames.some((f) => f.events.some((e) => e.t === "mark" && e.robot === 0 && Math.hypot(e.x - HIDDEN.x, e.y - HIDDEN.y) < 15)),
+  },
+
+  {
+    id: "trig",
+    group: "see",
+    only: "basic",
+    title: { it: "Dietro le quinte", en: "Behind the scenes" },
+    intro: {
+      it: "Una missione in più, per quando a scuola arriverà la trigonometria (o per i curiosi): come fanno `point_x` e `point_y` a trovare il punto?\n\nImmagina un triangolo rettangolo: il lato lungo è la distanza d, i due lati corti sono quanto il punto è spostato in orizzontale e in verticale. Il coseno della direzione dice quanta parte di d va in orizzontale, il seno quanta in verticale:\n\n`x = loc_x() + d * cos(dir) / SCALE` e `y = loc_y() + d * sin(dir) / SCALE`\n\n`cos` e `sin` restituiscono numeri interi moltiplicati per SCALE (10000), perché il linguaggio non ha numeri con la virgola: per questo si divide per SCALE.\n\nIl contrario, da dx e dy alla direzione, lo fa `atan2(dy, dx)`: è quello che c'è dentro `dir_to`.",
+      en: "A bonus mission, for when trigonometry comes up at school (or for the curious): how do `point_x` and `point_y` find the point?\n\nPicture a right triangle: the long side is the distance d, the two short sides are how far the point is moved horizontally and vertically. The cosine of the direction says how much of d goes horizontally, the sine how much vertically:\n\n`x = loc_x() + d * cos(dir) / SCALE` and `y = loc_y() + d * sin(dir) / SCALE`\n\n`cos` and `sin` return integers multiplied by SCALE (10000), because the language has no decimal numbers: that's why you divide by SCALE.\n\nThe other way round, from dx and dy to the direction, is `atan2(dy, dx)`: it is what's inside `dir_to`.",
+    },
+    goal: { it: "Come in «Dov'è?», metti un mark() a meno di 15 metri dal bersaglio entro 300 tick, ma senza point_x e point_y: usa cos e sin.", en: "As in “Where is it?”, put a mark() less than 15 metres from the target within 300 ticks, but without point_x and point_y: use cos and sin." },
+    hints: WHERE_HINTS,
+    starter: WHERE_STARTER,
+    forbid: ["point_x", "point_y"],
     opponents: [{ name: TARGET, source: STILL }],
     positions: [{ x: 300, y: 250 }, HIDDEN],
     rules: { maxTicks: 300 },
@@ -568,6 +675,17 @@ fn main() {
 }
 `,
     },
+    basic: {
+      intro: {
+        it: "Il Corridore va su e giù a tutta velocità, 7 metri per tick, lontano da te. Un gavettone ci mette più di 10 tick ad arrivare: se lanci dove lo vedi, quando scoppia lui è già 70 metri più in là.\n\nBisogna lanciare dove sarà. Misura la sua posizione due volte, a qualche tick di distanza: la differenza divisa per il tempo è la sua velocità. Poi calcola dove sarà quando il gavettone arriva (distanza / 50 tick di volo).\n\nLa posizione si trova con `point_x` e `point_y`, come nella missione «Dov'è?»; `time()` dice il tick attuale e `throw_at(x, y)` lancia proprio sul punto (x, y).",
+        en: "The Runner goes up and down at full speed, 7 metres per tick, far from you. A balloon takes over 10 ticks to get there: if you throw where you see it, by the time it bursts the Runner is 70 metres further on.\n\nYou have to throw where it will be. Measure its position twice, a few ticks apart: the difference divided by the time is its velocity. Then work out where it will be when the balloon arrives (distance / 50 ticks of flight).\n\nThe position comes from `point_x` and `point_y`, as in the “Where is it?” mission; `time()` gives the current tick and `throw_at(x, y)` throws right at the point (x, y).",
+      },
+      hints: [
+        { it: "Il Corridore si muove solo in verticale: basta stimare la sua velocità lungo y.", en: "The Runner only moves vertically: estimating its speed along y is enough." },
+        { it: "Velocità in metri per tick: vy = (y2 − y1) / (t2 − t1), con almeno 5 tick tra le due misure. Poi throw_at(x, y + vy × (volo + tick passati dall'ultima misura)).", en: "Speed in metres per tick: vy = (y2 − y1) / (t2 − t1), with at least 5 ticks between the two measurements. Then throw_at(x, y + vy × (flight + ticks since the last measurement))." },
+        { it: "Il robot di esempio Tiratore fa proprio questo: leggine il codice nella modalità libera.", en: "The Marksman sample robot does exactly this: read its code in free play." },
+      ],
+    },
     opponents: [{ name: { it: "Corridore", en: "Runner" }, source: RUNNER }],
     positions: [{ x: 120, y: 500 }, { x: 750, y: 500 }],
     rules: { maxTicks: 1000 },
@@ -760,6 +878,12 @@ fn main() {
 }
 `,
     },
+    basic: {
+      hints: [
+        { it: "Corri tra due punti lontani dai muri, a tutta velocità: drive_to(x, y, 100), e quando dist_to(x, y) è piccola scegli un'altra meta.", en: "Run between two points away from the walls, at full speed: drive_to(x, y, 100), and when dist_to(x, y) gets small pick another destination." },
+        { it: "Il robot di esempio Vagabondo corre da un punto a caso all'altro: parti dal suo codice e in nuovaMeta() scrivi drive_to(mx, my, 100) al posto della riga con drive.", en: "The Wanderer sample robot runs from one random point to another: start from its code and in newDestination() write drive_to(tx, ty, 100) instead of the line with drive." },
+      ],
+    },
     opponents: [{ name: { it: "Irrigatore", en: "Sprinkler" }, sample: "sprinkler" }],
     positions: [{ x: 800, y: 500 }, { x: 500, y: 500 }],
     rules: { maxTicks: 1000 },
@@ -806,6 +930,26 @@ fn main() {
     check: won,
   },
 ];
+
+/** The mission as seen in a path: the basic texts replace the advanced ones where present. */
+export function missionView(m: Mission, path: LearnPath): Mission {
+  return path === "basic" && m.basic ? { ...m, ...m.basic } : m;
+}
+
+/** The missions of a path, in order, with its texts. */
+export function missionsFor(path: LearnPath): Mission[] {
+  return MISSIONS.filter((m) => !m.only || m.only === path).map((m) => missionView(m, path));
+}
+
+/**
+ * The forbidden functions the code calls (comments and strings excluded):
+ * the mission cannot be attempted with them.
+ */
+export function forbiddenCalls(m: Mission, source: string): string[] {
+  if (!m.forbid?.length) return [];
+  const code = source.replace(/\/\*[\s\S]*?(\*\/|$)|\/\/[^\n]*|"(\\.|[^"\\\n])*"?/g, " ");
+  return m.forbid.filter((f) => new RegExp(`\\b${f}\\s*\\(`).test(code));
+}
 
 /** True if the text contains the distance between the two robots (in metres, with 2 m tolerance). */
 function printsDistance(text: string, a: { x: number; y: number }, b: { x: number; y: number }): boolean {

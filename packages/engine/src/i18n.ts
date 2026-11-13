@@ -32,6 +32,7 @@ export const MESSAGES: Catalog = {
   E_IS_ARRAY: { it: "«{0}» è un array: indica la posizione, per esempio {0}[0]", en: "'{0}' is an array: give a position, e.g. {0}[0]" },
   E_IS_FUNC: { it: "«{0}» è una funzione: per chiamarla scrivi {0}(…)", en: "'{0}' is a function: to call it write {0}(…)" },
   E_ARGS: { it: "«{0}» vuole {1} argomenti, ne hai dati {2}", en: "'{0}' takes {1} arguments, you gave {2}" },
+  E_ARGS_ONE: { it: "«{0}» vuole un argomento, ne hai dati {2}", en: "'{0}' takes one argument, you gave {2}" },
   E_CONST_ASSIGN: { it: "«{0}» è una costante e non si può cambiare", en: "'{0}' is a constant and cannot be changed" },
   E_NOT_CONST: { it: "Qui serve un valore costante, calcolabile prima della partita", en: "A constant value is needed here, computable before the match" },
   E_CONST_DIV0: { it: "Divisione per zero in una costante", en: "Division by zero in a constant" },

@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { compile, type Program } from "@paintarena/engine";
-import { GROUPS, MISSIONS, missionOpponents, missionRules, playMission, type Mission } from "../src/lib/missions.ts";
+import { forbiddenCalls, GROUPS, MISSIONS, missionOpponents, missionRules, missionsFor, playMission, type Mission } from "../src/lib/missions.ts";
 
 const sample = (id: string) => readFileSync(new URL(`../../../robots/en/${id}.pa`, import.meta.url), "utf8");
 
@@ -55,6 +55,34 @@ fn main() {
   melee: sample("tracker"),
 };
 
+SOLUTIONS.trig = SOLUTIONS.where;
+
+function replaced(src: string, from: string, to: string): string {
+  assert.ok(src.includes(from), "text to replace not found: " + from);
+  return src.replace(from, to);
+}
+
+/** Solutions of the basic path (no trigonometry), where they differ. */
+const BASIC: Record<string, string> = {
+  move: "fn main() { drive_to(750, 600, 100); }",
+  tour: `var fx[4];
+var fy[4];
+fn main() {
+  fx[0] = 300; fy[0] = 200; fx[1] = 800; fy[1] = 300; fx[2] = 700; fy[2] = 800; fx[3] = 200; fy[3] = 700;
+  var i = 0;
+  while (i < 4) {
+    drive_to(fx[i], fy[i], 100);
+    if (dist_to(fx[i], fy[i]) < 20) { i++; }
+    yield();
+  }
+  drive(0, 0);
+}`,
+  where: "var dir = 0; fn main() { loop { var d = scan(dir, 1); if (d > 0) { mark(point_x(dir, d), point_y(dir, d)); } dir += 2; } }",
+  lead: sample("marksman"),
+  // Wanderer with drive_to, as the hint suggests
+  dodge: replaced(sample("wanderer"), "drive(atan2(ty - loc_y(), tx - loc_x()), 100);", "drive_to(tx, ty, 100);"),
+};
+
 function build(src: string, m: Mission): Program {
   const r = compile(src, missionRules(m));
   assert.ok(r.ok, m.id + ": " + JSON.stringify(r.diagnostics));
@@ -66,25 +94,48 @@ function attempt(m: Mission, src: string, seed: number): boolean {
   return m.check(rep);
 }
 
-test("missions are grouped in order", () => {
-  const order = MISSIONS.map((m) => GROUPS.indexOf(m.group));
-  assert.ok(order.every((g, i) => g >= 0 && (i === 0 || g >= order[i - 1])), String(order));
+test("missions are grouped in order, in both paths", () => {
+  for (const path of ["basic", "advanced"] as const) {
+    const list = missionsFor(path);
+    const order = list.map((m) => GROUPS.indexOf(m.group));
+    assert.ok(order.every((g, i) => g >= 0 && (i === 0 || g >= order[i - 1])), path + ": " + String(order));
+  }
   assert.equal(new Set(MISSIONS.map((m) => m.id)).size, MISSIONS.length);
+  // the basic path asks for no trigonometry, except in the bonus mission that explains it
+  for (const m of missionsFor("basic")) {
+    if (m.id === "trig") continue;
+    for (const lang of ["it", "en"] as const) {
+      const texts = [m.intro[lang], m.starter[lang], ...m.hints.map((h) => h[lang])].join("\n");
+      assert.ok(!/\b(atan2|sin|cos)\(/.test(texts), `${m.id} (${lang}): trigonometry in the basic path`);
+    }
+  }
 });
 
-for (const m of MISSIONS) {
-  test(`mission ${m.id}`, () => {
-    for (const lang of ["it", "en"] as const) {
-      if (m.starter[lang]) {
-        const r = compile(m.starter[lang], missionRules(m));
-        assert.ok(r.ok, `${m.id} (${lang}): the starter code does not compile`);
+test("forbidden functions are found only in the code", () => {
+  const where = missionsFor("advanced").find((m) => m.id === "where")!;
+  assert.deepEqual(forbiddenCalls(where, "mark(point_x(1, 2), point_y (1, 2));"), ["point_x", "point_y"]);
+  assert.deepEqual(forbiddenCalls(where, '// point_x(\nprint("point_y(");'), []);
+  assert.deepEqual(forbiddenCalls(missionsFor("basic").find((m) => m.id === "where")!, "mark(point_x(1, 2), 0);"), []);
+});
+
+for (const path of ["basic", "advanced"] as const) {
+  for (const m of missionsFor(path)) {
+    test(`mission ${m.id} (${path})`, () => {
+      for (const lang of ["it", "en"] as const) {
+        if (m.starter[lang]) {
+          const r = compile(m.starter[lang], missionRules(m));
+          assert.ok(r.ok, `${m.id} (${lang}): the starter code does not compile`);
+          assert.deepEqual(forbiddenCalls(m, m.starter[lang]), [], `${m.id} (${lang}): the starter code uses forbidden functions`);
+        }
+        assert.ok(m.title[lang] && m.intro[lang] && m.goal[lang], `${m.id}: texts missing in ${lang}`);
+        for (const h of m.hints) assert.ok(h[lang], `${m.id}: hint missing in ${lang}`);
       }
-      assert.ok(m.title[lang] && m.intro[lang] && m.goal[lang], `${m.id}: texts missing in ${lang}`);
-      for (const h of m.hints) assert.ok(h[lang], `${m.id}: hint missing in ${lang}`);
-    }
-    const seeds = m.randomSeed ? [1, 2, 3, 4, 5, 6, 7, 8] : [1];
-    for (const lang of ["it", "en"] as const)
-      if (m.starter[lang]) assert.ok(!seeds.some((s) => attempt(m, m.starter[lang], s)), `${m.id} (${lang}): the starter code already solves the mission`);
-    assert.ok(seeds.some((s) => attempt(m, SOLUTIONS[m.id], s)), `${m.id}: the reference solution does not work`);
-  });
+      const seeds = m.randomSeed ? [1, 2, 3, 4, 5, 6, 7, 8] : [1];
+      for (const lang of ["it", "en"] as const)
+        if (m.starter[lang]) assert.ok(!seeds.some((s) => attempt(m, m.starter[lang], s)), `${m.id} (${lang}): the starter code already solves the mission`);
+      const solution = (path === "basic" && BASIC[m.id]) || SOLUTIONS[m.id];
+      assert.deepEqual(forbiddenCalls(m, solution), [], `${m.id}: the reference solution uses forbidden functions`);
+      assert.ok(seeds.some((s) => attempt(m, solution, s)), `${m.id}: the reference solution does not work`);
+    });
+  }
 }

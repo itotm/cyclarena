@@ -54,6 +54,20 @@ export function isqrt(n: number): number {
   return r;
 }
 
+/**
+ * Distance √(dx² + dy²) rounded down, for any 32-bit dx and dy (beyond 2^53
+ * it switches to BigInt, so it stays exact); at most 2147483647.
+ */
+export function idist(dx: number, dy: number): number {
+  const s = dx * dx + dy * dy;
+  if (s <= Number.MAX_SAFE_INTEGER) return isqrt(s);
+  const n = BigInt(dx) * BigInt(dx) + BigInt(dy) * BigInt(dy);
+  let r = BigInt(Math.floor(Math.sqrt(Number(n))));
+  while (r * r > n) r--;
+  while ((r + 1n) * (r + 1n) <= n) r++;
+  return Number(r > 2147483647n ? 2147483647n : r);
+}
+
 /** Rounds to the nearest integer, symmetric around zero. */
 export function roundDiv(a: number, b: number): number {
   const q = a / b;

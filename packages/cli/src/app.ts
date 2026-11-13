@@ -14,8 +14,8 @@ const DEFAULT_PORT = 51517;
 const PING = "/__paintarena";
 
 function detectLang(): "it" | "en" {
-  const env = process.env.PAINTARENA_LANG ?? process.env.LANG ?? "";
-  const loc = env || Intl.DateTimeFormat().resolvedOptions().locale;
+  // same order as the command line (main.ts): an empty variable counts as missing
+  const loc = process.env.PAINTARENA_LANG || process.env.LANG || Intl.DateTimeFormat().resolvedOptions().locale;
   return loc.startsWith("it") ? "it" : "en";
 }
 const it = detectLang() === "it";
@@ -53,7 +53,9 @@ function serve(site: SiteFiles) {
       return;
     }
     const server = createServer((req, res) => {
-      const path = decodeURIComponent(new URL(req.url ?? "/", url).pathname);
+      let path: string;
+      try { path = decodeURIComponent(new URL(req.url ?? "/", url).pathname); }
+      catch { res.writeHead(400, { "content-type": "text/plain" }).end("400"); return; }
       if (path === PING) { res.writeHead(200, { "content-type": "text/plain" }).end("paintarena"); return; }
       const file = site[path === "/" ? "/index.html" : path];
       if (!file) { res.writeHead(404, { "content-type": "text/plain" }).end("404"); return; }

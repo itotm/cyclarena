@@ -30,15 +30,25 @@ machine and the rules are new, and CROBOTS robots are not compatible.
 ## What you can do
 
 - **Learn**: fourteen short missions in four groups, each introducing one idea:
-  moving, braking, arrays, the radar, trigonometry with `mark()`, throwing,
-  aiming, moving targets, leading a target, a slow CPU, averaging noisy
-  readings, dodging, a one-on-one match, a free-for-all.
+  moving, braking, arrays, the radar, finding a robot's coordinates with
+  `mark()`, throwing, aiming, moving targets, leading a target, a slow CPU,
+  averaging noisy readings, dodging, a one-on-one match, a free-for-all. Two
+  paths: **basic**, for those who have not studied trigonometry yet, uses
+  functions that work with x and y coordinates (`drive_to`, `dir_to`,
+  `dist_to`, `point_x`, `point_y`, `throw_at`), with a bonus mission that
+  shows the trigonometry behind them; **advanced** uses `atan2`, `sin` and
+  `cos`. Both kinds of function give the same results at the same cost in
+  cycles, so robots written either way compete on equal terms.
 - **Play**: write robots in an editor with IDE helpers (completion of functions,
   variables and blocks, signature and cost hints, go to definition, folding,
   search and replace, multiple cursors), keep as many as you like, import and
   export them as `.pa` files to swap them with friends, and run matches with
   2, 3 or 4 robots chosen among yours and the examples. Matches are replayed
   frame by frame, with a console for `print()` and a cycle profile.
+- **Manual**: the language, every system function with an example, and
+  interactive diagrams (drag the robots and the points) for coordinates,
+  angles, the radar, throwing and trigonometry, with a contents panel on the
+  side.
 - **Tournament**: thousands of matches (1k, 10k, 100k or any number) played in
   parallel in the browser, in duels or groups of 3 or 4, with ranking,
   head-to-head matrix, win-rate trend and match-length chart.
@@ -60,13 +70,14 @@ files.
 | `circuit` | Micro | drives along the walls, scanning only the inner half of the arena |
 | `chaser` | Micro | narrows the radar beam, throws and chases |
 | `corner` | Micro | settles in a corner, where 90° are enough to watch |
+| `marksman` | Micro | uses only coordinates: works out where the target is with `point_x`/`point_y`, estimates its speed and throws with `throw_at` where it will be |
 | `tracker` | Mini | locks onto a target, estimates its velocity and throws where it will be |
 | `mapper` | Standard | keeps a map of the arena in memory, with the dangerous places and those already visited |
 | `strategist` | Unlimited | rotates five strategies and keeps the one where it takes the least paint; fine map and history of sightings |
 
 The example robots come in two versions with the same program: in English in
 `robots/en` and in Italian in `robots/it` (`primo`, `irrigatore`, `vagabondo`,
-`spirale`, `circuito`, `inseguitore`, `angolo`, `segugio`, `cartografo`, `stratega`). The website shows
+`spirale`, `circuito`, `inseguitore`, `angolo`, `tiratore`, `segugio`, `cartografo`, `stratega`). The website shows
 the ones in the chosen language.
 
 ## Running it

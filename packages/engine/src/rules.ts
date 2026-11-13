@@ -53,7 +53,7 @@ export interface Rules {
 export interface SplashLevel { range: number; paint: number }
 
 export const RULES_V0: Rules = Object.freeze({
-  version: "0.1",
+  version: "0.2",
   robotClass: "standard",
   arenaSize: 1000,
   cyclesPerTick: 50,

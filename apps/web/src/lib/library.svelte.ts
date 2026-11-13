@@ -8,7 +8,7 @@
 import type { Lang } from "@paintarena/engine";
 import { i18n } from "./i18n.svelte.ts";
 import { samples, sample } from "./samples.ts";
-import { load, save } from "./storage.ts";
+import { load, save, STORAGE_PREFIX } from "./storage.ts";
 
 export interface UserRobot { id: string; name: string; source: string }
 
@@ -45,14 +45,18 @@ function cleanName(name: string): string {
   return name.replace(/[\u0000-\u001f]/g, "").replace(/\s+/g, " ").trim().slice(0, MAX_NAME);
 }
 
-function loadRobots(): UserRobot[] {
+/** The robots saved in the browser (an empty list if there are none or they are unreadable). */
+function parseRobots(text: string | null): UserRobot[] {
   try {
-    const v = JSON.parse(load("robots") ?? "");
-    if (Array.isArray(v)) {
-      const list = v.filter((r) => r && typeof r.id === "string" && typeof r.name === "string" && typeof r.source === "string");
-      if (list.length) return list;
-    }
+    const v = JSON.parse(text ?? "");
+    if (Array.isArray(v)) return v.filter((r) => r && typeof r.id === "string" && typeof r.name === "string" && typeof r.source === "string");
   } catch { /* no saved robots */ }
+  return [];
+}
+
+function loadRobots(): UserRobot[] {
+  const list = parseRobots(load("robots"));
+  if (list.length) return list;
   // first time: the first robot starts from the "first" sample
   return [{ id: newId(), name: i18n.t("myRobot"), source: sample("first")!.source }];
 }
@@ -66,6 +70,26 @@ class Library {
     const saved = load("robots.current");
     this.currentId = this.robots.some((r) => r.id === saved) ? saved! : this.robots[0].id;
     this.persist();
+    if (typeof window !== "undefined") {
+      // nothing typed is lost when the page is closed or hidden
+      window.addEventListener("pagehide", () => this.flush());
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") this.flush(); });
+      // another tab saved its list: take it, so the next save here does not erase its changes
+      window.addEventListener("storage", (e) => { if (e.key === STORAGE_PREFIX + "robots") this.#sync(e.newValue); });
+    }
+  }
+
+  /** Takes the list saved by another tab, keeping this tab's version of the robot being edited. */
+  #sync(text: string | null) {
+    const list = parseRobots(text);
+    if (!list.length) return;
+    const mine = this.get(this.currentId);
+    if (mine) {
+      const i = list.findIndex((r) => r.id === mine.id);
+      if (i >= 0) list[i] = { ...list[i], source: mine.source };
+      else list.push({ ...mine }); // deleted in the other tab while open here: it stays
+    }
+    this.robots = list;
   }
 
   get current(): UserRobot {
@@ -78,6 +102,7 @@ class Library {
 
   persist() {
     clearTimeout(this.#timer);
+    this.#timer = undefined;
     save("robots", JSON.stringify(this.robots));
     save("robots.current", this.currentId);
   }
@@ -85,7 +110,12 @@ class Library {
   /** Delayed save (while typing). */
   persistSoon() {
     clearTimeout(this.#timer);
-    this.#timer = setTimeout(() => this.persist(), 400);
+    this.#timer = setTimeout(() => { this.#timer = undefined; this.persist(); }, 400);
+  }
+
+  /** Saves right away if a delayed save is pending. */
+  flush() {
+    if (this.#timer !== undefined) this.persist();
   }
 
   /** A free name: "Hunter", then "Hunter 2", "Hunter 3"… */

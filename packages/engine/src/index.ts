@@ -10,7 +10,7 @@ export type { Program, FunctionInfo, VarInfo } from "./vm/program.ts";
 export { disassemble, type AsmLine } from "./vm/disasm.ts";
 export { Match, Robot, MAX_ROBOTS, WALL, type Entrant, type MatchEvent, type MatchOptions, type MatchResult } from "./sim/match.ts";
 export { recordMatch, type Frame, type Replay, type RobotFrame } from "./sim/replay.ts";
-export { mixSeed } from "./math.ts";
+export { mixSeed, iatan2, icos, isin, isqrt, idist, normDeg, SCALE } from "./math.ts";
 export {
   tournamentGroups, tournamentSeed, tournamentMatch, emptyStats, mergeStats, addMatch, playTournamentRange,
   POINTS_WIN, POINTS_SURVIVE, HIST_BINS, type TournamentStats,

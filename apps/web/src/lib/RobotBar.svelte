@@ -25,13 +25,36 @@
     onchange();
   }
 
-  function create(e: Event & { currentTarget: HTMLSelectElement }) {
-    const v = e.currentTarget.value;
-    e.currentTarget.value = "";
-    if (!v) return;
+  // "New" menu: a button with a list, not a <select>, because with some
+  // browsers the arrow keys on a closed select would already create a robot
+  let menuOpen = $state(false);
+  let menuButton: HTMLButtonElement;
+
+  function create(v: string) {
+    closeMenu(true);
     if (v === "blank") library.create(t("newRobotName"));
     else library.createFromSample(v);
     onchange();
+  }
+
+  function closeMenu(refocus = false) {
+    if (!menuOpen) return;
+    menuOpen = false;
+    if (refocus) menuButton.focus();
+  }
+
+  function menuKeys(e: KeyboardEvent & { currentTarget: HTMLElement }) {
+    const items = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("[role=menuitem]")];
+    const i = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === "Escape") { e.preventDefault(); closeMenu(true); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); items[(i + 1) % items.length]?.focus(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length]?.focus(); }
+    else if (e.key === "Home") { e.preventDefault(); items[0]?.focus(); }
+    else if (e.key === "End") { e.preventDefault(); items[items.length - 1]?.focus(); }
+  }
+
+  function focusFirst(node: HTMLElement) {
+    node.querySelector<HTMLButtonElement>("[role=menuitem]")?.focus();
   }
 
   function startRename() {
@@ -110,11 +133,42 @@
   </span>
   <input class="hidden" type="file" accept=".pa,.txt,text/plain" multiple bind:this={fileInput} onchange={importFiles} />
 
-  <select class="w-28 px-1.5 text-sm" onchange={create} aria-label={t("newRobot")}>
-    <option value="">+ {t("newRobot")}</option>
-    <option value="blank">{t("blankRobot")}</option>
-    <optgroup label={t("copyOfExample")}>
-      {#each samples() as s (s.id)}<option value={s.id}>{s.title}</option>{/each}
-    </optgroup>
-  </select>
+  <div class="relative" onfocusout={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) closeMenu(); }}>
+    <button class="h-8 px-2.5 text-sm" bind:this={menuButton} aria-haspopup="menu" aria-expanded={menuOpen}
+      onclick={() => (menuOpen = !menuOpen)}
+      onkeydown={(e) => { if (e.key === "ArrowDown" && !menuOpen) { e.preventDefault(); menuOpen = true; } }}>+ {t("newRobot")}</button>
+    {#if menuOpen}
+      <div class="absolute left-0 top-full z-20 mt-1 flex max-h-[min(28rem,70vh)] min-w-48 flex-col overflow-y-auto rounded-panel border border-line-strong bg-surface py-1 shadow-lg"
+        role="menu" tabindex="-1" aria-label={t("newRobot")} onkeydown={menuKeys} {@attach focusFirst}>
+        <button class="menu-item" role="menuitem" tabindex="-1" onclick={() => create("blank")}>{t("blankRobot")}</button>
+        <div class="px-3 pt-2 pb-1 text-[0.7rem] uppercase tracking-[0.1em] text-dim" role="presentation">{t("copyOfExample")}</div>
+        {#each samples() as s (s.id)}
+          <button class="menu-item" role="menuitem" tabindex="-1" onclick={() => create(s.id)}>{s.title}</button>
+        {/each}
+      </div>
+    {/if}
+  </div>
 </div>
+
+<svelte:window onpointerdown={(e) => { if (menuOpen && !(e.target as Element).closest?.("[role=menu], [aria-haspopup=menu]")) closeMenu(); }} />
+
+<style>
+  .menu-item {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0.35rem 0.75rem;
+    text-align: left;
+    font-family: var(--font-ui, inherit);
+    font-size: 0.875rem;
+    font-weight: 400;
+    letter-spacing: normal;
+    text-transform: none;
+    white-space: nowrap;
+  }
+  .menu-item:hover, .menu-item:focus-visible {
+    background: var(--accent-soft);
+    color: var(--accent);
+    outline: none;
+  }
+</style>

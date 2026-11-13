@@ -1,27 +1,34 @@
 <script lang="ts">
   import Play from "./lib/Play.svelte";
   import Learn from "./lib/Learn.svelte";
-  import Manual from "./lib/Manual.svelte";
+  import Manual from "./lib/manual/Manual.svelte";
   import About from "./lib/About.svelte";
   import Tournament from "./lib/Tournament.svelte";
   import { i18n } from "./lib/i18n.svelte.ts";
   import { theme } from "./lib/theme.svelte.ts";
-  import { MISSIONS } from "./lib/missions.ts";
+  import { MISSIONS, missionView } from "./lib/missions.ts";
+  import { progress } from "./lib/progress.svelte.ts";
 
   const t = i18n.t;
 
-  // routes: #about (the start page), #learn, #play, #m/<mission>, #tournament, #manual
-  type Route = { page: "learn" | "play" | "tournament" | "manual" | "about"; mission: string | null };
+  // routes: #about (the start page), #learn, #play, #m/<mission>, #tournament,
+  // #manual, #manual/<section>
+  type Route = { page: "learn" | "play" | "tournament" | "manual" | "about"; mission: string | null; section?: string };
 
   function parse(hash: string): Route {
     const h = hash.replace(/^#/, "");
     if (h.startsWith("m/") && MISSIONS.some((m) => m.id === h.slice(2))) return { page: "play", mission: h.slice(2) };
+    if (h.startsWith("manual/")) return { page: "manual", mission: null, section: h.slice(7) };
     if (h === "learn" || h === "manual" || h === "about" || h === "play" || h === "tournament") return { page: h, mission: null };
     return { page: "about", mission: null };
   }
 
   let route = $state<Route>(parse(location.hash));
-  const mission = $derived(route.mission ? MISSIONS.find((m) => m.id === route.mission) ?? null : null);
+  // the mission with the texts of the chosen path (basic or advanced)
+  const mission = $derived.by(() => {
+    const m = route.mission ? MISSIONS.find((x) => x.id === route.mission) : null;
+    return m ? missionView(m, progress.path) : null;
+  });
 
   function go(hash: string) {
     history.pushState(null, "", "#" + hash);
@@ -84,11 +91,11 @@
   {:else if route.page === "tournament"}
     <Tournament />
   {:else if route.page === "manual"}
-    <Manual lang={i18n.lang} />
+    <Manual lang={i18n.lang} section={route.section} />
   {:else if route.page === "about"}
     <About lang={i18n.lang} onopen={go} />
   {:else}
-    {#key route.mission}
+    {#key route.mission + progress.path}
       <Play {mission} onopen={(id) => go(id ? "m/" + id : "learn")} />
     {/key}
   {/if}

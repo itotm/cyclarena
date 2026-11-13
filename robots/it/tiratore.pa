@@ -1,0 +1,94 @@
+// Tiratore: trova dov'è il bersaglio con point_x e point_y, misura quanto
+// veloce si muove e lancia nel punto dove sarà. Usa solo le coordinate: non
+// serve la trigonometria. Intanto corre da un punto a caso all'altro: un
+// robot che si muove è più difficile da colpire.
+// mark() disegna nell'arena il punto a cui sta mirando.
+
+const VEL_GAVETTONE = 50;   // metri percorsi da un gavettone in un tick
+const RICARICA = 15;        // tick necessari tra due lanci
+
+var dir = 0;        // direzione del radar
+var carico = 0;     // tick in cui si potrà lanciare di nuovo
+
+// posizione del bersaglio all'ultima misura, e quando è stata presa
+var bx = 0;
+var by = 0;
+var bt = -1;        // -1 = ancora nessuna misura
+
+// velocità del bersaglio, in decimi di metro per tick
+// (il linguaggio ha solo numeri interi: così si tiene un po' di precisione)
+var vx = 0;
+var vy = 0;
+
+var mx = 0;         // dove stiamo correndo
+var my = 0;
+
+fn nuovaMeta() {
+  // un punto a caso ad almeno 100 m dai muri
+  mx = 100 + rand(800);
+  my = 100 + rand(800);
+  drive_to(mx, my, 100);
+}
+
+// stringe il fascio del radar attorno a dir, dimezzando il cono ogni volta,
+// e restituisce la distanza del bersaglio (0 se non c'è)
+fn aggancia() {
+  var d = scan(dir, 10);
+  if (d == 0) {
+    return 0;
+  }
+  if (scan(dir - 5, 5) > 0) { dir -= 5; } else { dir += 5; }
+  if (scan(dir - 3, 3) > 0) { dir -= 2; } else { dir += 2; }
+  if (scan(dir - 1, 1) > 0) { dir -= 1; } else { dir += 1; }
+  var d2 = scan(dir, 1);
+  if (d2 > 0) {
+    return d2;
+  }
+  return d;
+}
+
+// posizione del bersaglio e, confrontandola con la precedente, la sua velocità
+fn segui(d) {
+  var x = point_x(dir, d);
+  var y = point_y(dir, d);
+  var ora = time();
+  if (bt < 0 || ora - bt > 40) {
+    vx = 0;   // prima misura (o molto vecchia): velocità sconosciuta
+    vy = 0;
+  } else if (ora - bt >= 8) {
+    // velocità = strada percorsa / tempo, su almeno 8 tick
+    vx = (x - bx) * 10 / (ora - bt);
+    vy = (y - by) * 10 / (ora - bt);
+  } else {
+    return;   // troppo presto: si tiene la misura precedente
+  }
+  bx = x;
+  by = y;
+  bt = ora;
+}
+
+fn main() {
+  nuovaMeta();
+  loop {
+    if (dist_to(mx, my) < 60) {
+      nuovaMeta();
+    }
+    var d = aggancia();
+    if (d > 0) {
+      segui(d);
+      if (time() >= carico) {
+        // dove sarà il bersaglio quando arriva il gavettone
+        var volo = d / VEL_GAVETTONE + (time() - bt) + 1;
+        var ax = bx + vx * volo / 10;
+        var ay = by + vy * volo / 10;
+        // entro 40 m lo schizzo colorerebbe anche noi
+        if (dist_to(ax, ay) > 40 && throw_at(ax, ay)) {
+          carico = time() + RICARICA;
+          mark(ax, ay);
+        }
+      }
+    } else {
+      dir += 20;   // non c'è nessuno: gira il radar
+    }
+  }
+}

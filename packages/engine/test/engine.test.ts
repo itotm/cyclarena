@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { compile, Match, message, recordMatch, RULES_V0, rulesForClass, splashPaint, WALL, type Program, type Rules } from "../src/index.ts";
-import { iatan2, icos, isin, isqrt } from "../src/math.ts";
+import { iatan2, icos, idist, isin, isqrt } from "../src/math.ts";
 
 const ROBOTS = new URL("../../../robots/", import.meta.url);
 const robot = (name: string, lang = "en") => readFileSync(new URL(`${lang}/${name}.pa`, ROBOTS), "utf8");
@@ -10,7 +10,7 @@ const robot = (name: string, lang = "en") => readFileSync(new URL(`${lang}/${nam
 /** The same sample robots in the two languages: English name, Italian name. */
 const PAIRS = [
   ["first", "primo"], ["sprinkler", "irrigatore"], ["wanderer", "vagabondo"], ["spiral", "spirale"],
-  ["circuit", "circuito"], ["chaser", "inseguitore"], ["corner", "angolo"], ["tracker", "segugio"],
+  ["circuit", "circuito"], ["chaser", "inseguitore"], ["corner", "angolo"], ["marksman", "tiratore"], ["tracker", "segugio"],
   ["mapper", "cartografo"], ["strategist", "stratega"],
 ];
 
@@ -57,6 +57,11 @@ test("integer math", () => {
   assert.equal(isqrt(99), 9);
   assert.equal(isqrt(100), 10);
   assert.equal(isqrt(2 ** 52), 2 ** 26);
+  assert.equal(idist(3, -4), 5);
+  assert.equal(idist(0, 0), 0);
+  assert.equal(idist(100_000_000, 0), 100_000_000); // beyond 2^53 when squared and summed
+  assert.equal(idist(2147483647, 2147483647), 2147483647); // capped
+  assert.equal(idist(-2147483648, 0), 2147483647);
 });
 
 test("all example robots compile without errors", () => {
@@ -199,7 +204,7 @@ test("reference results (change only when the rules change)", () => {
 test("classes: code and memory limits", async () => {
   const { rulesForClass, smallestClass } = await import("../src/index.ts");
   const classOf = (n: string) => { const p = build(robot(n), UNLIMITED); return smallestClass(p.size, p.globals); };
-  for (const n of ["first", "sprinkler", "wanderer", "spiral", "circuit", "chaser", "corner"]) assert.equal(classOf(n), "micro", n);
+  for (const n of ["first", "sprinkler", "wanderer", "spiral", "circuit", "chaser", "corner", "marksman"]) assert.equal(classOf(n), "micro", n);
   assert.equal(classOf("tracker"), "mini");
   assert.equal(classOf("mapper"), "standard");
   assert.equal(classOf("strategist"), "unlimited");
@@ -321,4 +326,46 @@ test("fresh paint on the walls, and a little paint swapped when robots bump", ()
   for (let i = 0; i < 20; i++) b.step();
   assert.equal(b.robots[0].paintBy[1], RULES_V0.bump);
   assert.equal(b.robots[1].paintBy[0], RULES_V0.bump);
+});
+
+test("coordinate functions: same result as the formulas they replace", () => {
+  // robot at (300, 250), points all around, including far outside the arena
+  const pts = [[750, 600], [300, 900], [10, 250], [300, 250], [-5000, 123], [999, 1], [301, 251]];
+  const calls = pts.map(([x, y]) => `
+    print(dir_to(${x}, ${y}), atan2(${y} - loc_y(), ${x} - loc_x()));
+    print(dist_to(${x}, ${y}), sqrt((${x} - loc_x()) * (${x} - loc_x()) + (${y} - loc_y()) * (${y} - loc_y())));`).join("");
+  const polar = [[0, 100], [45, 570], [123, 333], [270, 40], [-30, 77], [400, 1], [181, 0]].map(([d, r]) => `
+    print(point_x(${d}, ${r}), loc_x() + ${r} * cos(${d}) / SCALE);
+    print(point_y(${d}, ${r}), loc_y() + ${r} * sin(${d}) / SCALE);`).join("");
+  const src = `fn main() { ${calls} ${polar} loop { yield(); } }`;
+  const m = new Match([{ name: "t", program: build(src, UNLIMITED) }], { seed: 1, record: true, rules: UNLIMITED, positions: [{ x: 300, y: 250 }] });
+  const prints: string[] = [];
+  for (let i = 0; i < 40; i++) { m.step(); for (const e of m.events) if (e.t === "print") prints.push(e.text); }
+  assert.equal(prints.length, pts.length * 2 + 14);
+  for (const p of prints) { const [a, b] = p.split(" "); assert.equal(a, b, p); }
+});
+
+test("coordinate functions cost as much as the code they replace", () => {
+  const cost = (body: string) => {
+    const p = build(`fn f(x, y, d, s) {\n${body};\n}\nfn main() { f(1, 2, 3, 4); }`);
+    return p.lineCost[2];
+  };
+  assert.equal(cost("var r = dir_to(x, y)"), cost("var r = atan2(y - loc_y(), x - loc_x())"));
+  assert.equal(cost("var r = point_x(d, s)"), cost("var r = loc_x() + s * cos(d) / SCALE"));
+  assert.equal(cost("var r = point_y(d, s)"), cost("var r = loc_y() + s * sin(d) / SCALE"));
+  assert.equal(cost("drive_to(x, y, s)"), cost("drive(atan2(y - loc_y(), x - loc_x()), s)"));
+  // distance: with dx and dy computed once, as a careful programmer would
+  const careful = "var dx = x - loc_x(); var dy = y - loc_y(); ";
+  assert.equal(cost("var r = dist_to(x, y)"), cost(careful + "var r = sqrt(dx * dx + dy * dy)"));
+  assert.equal(cost("var r = throw_at(x, y)"), cost(careful + "var r = throw(atan2(dy, dx), sqrt(dx * dx + dy * dy))"));
+});
+
+test("drive_to and throw_at act like drive and throw towards the point", () => {
+  const m = new Match([{ name: "t", program: build(`fn main() { drive_to(600, 650, 100); var ok = throw_at(400, 350); loop { yield(); } }`) }],
+    { seed: 1, positions: [{ x: 300, y: 250 }] });
+  m.step();
+  assert.equal(m.robots[0].dHeading, iatan2(400, 300));
+  assert.equal(m.balloons.length, 1);
+  assert.equal(m.balloons[0].heading, 45);
+  assert.equal(m.balloons[0].range, 141_000);
 });

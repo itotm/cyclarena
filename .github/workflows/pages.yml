@@ -10,12 +10,12 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
+# one run per branch or pull request: a newer push cancels the older checks,
+# but a pull request never cancels the publication from main
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   build:
@@ -40,6 +40,9 @@ jobs:
     if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

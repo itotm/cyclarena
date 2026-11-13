@@ -1,7 +1,7 @@
 // The interpreter: runs a robot's instructions while it has cycles left in the tick.
 // Operations are on 32-bit integers with wraparound overflow, as in C.
 
-import { iatan2, icos, isin, isqrt, normDeg, type Rng } from "../math.ts";
+import { iatan2, icos, idist, isin, isqrt, normDeg, SCALE, type Rng } from "../math.ts";
 import type { MsgArg } from "../i18n.ts";
 import { BUILTINS, OP_COST, Op, Sys } from "./isa.ts";
 import type { Program } from "./program.ts";
@@ -186,6 +186,39 @@ export function runTick(r: Cpu, host: Host, budget: number): void {
             }
             sp -= n;
             mem[sp++] = 0;
+            break;
+          }
+          // coordinate functions: the same arithmetic as the formulas they
+          // replace (32-bit subtraction, truncating division), so the results match
+          case Sys.dir_to: {
+            const y = mem[--sp];
+            mem[sp - 1] = iatan2((y - host.locY(r)) | 0, (mem[sp - 1] - host.locX(r)) | 0);
+            break;
+          }
+          case Sys.dist_to: {
+            const y = mem[--sp];
+            mem[sp - 1] = idist((mem[sp - 1] - host.locX(r)) | 0, (y - host.locY(r)) | 0);
+            break;
+          }
+          case Sys.point_x: case Sys.point_y: {
+            const dist = mem[--sp];
+            const dir = mem[sp - 1];
+            const base = id === Sys.point_x ? host.locX(r) : host.locY(r);
+            const trig = id === Sys.point_x ? icos(dir) : isin(dir);
+            mem[sp - 1] = base + Math.trunc(Math.imul(dist, trig) / SCALE);
+            break;
+          }
+          case Sys.drive_to: {
+            const s = mem[--sp], y = mem[--sp];
+            const dir = iatan2((y - host.locY(r)) | 0, (mem[sp - 1] - host.locX(r)) | 0);
+            host.drive(r, dir, s < 0 ? 0 : s > 100 ? 100 : s);
+            mem[sp - 1] = 0;
+            break;
+          }
+          case Sys.throw_at: {
+            const y = mem[--sp];
+            const dx = (mem[sp - 1] - host.locX(r)) | 0, dy = (y - host.locY(r)) | 0;
+            mem[sp - 1] = host.throwBalloon(r, iatan2(dy, dx), idist(dx, dy));
             break;
           }
           case Sys.mark: {

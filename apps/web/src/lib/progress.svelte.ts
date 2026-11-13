@@ -1,5 +1,6 @@
-// Completed missions, saved in the browser.
+// Completed missions and the chosen learning path, saved in the browser.
 
+import type { LearnPath } from "./missions.ts";
 import { load, save } from "./storage.ts";
 
 function initial(): string[] {
@@ -13,6 +14,13 @@ function initial(): string[] {
 
 class Progress {
   done = $state<string[]>(initial());
+  /** Learning path: basic (no trigonometry) unless advanced was chosen. */
+  path = $state<LearnPath>(load("learn.path") === "advanced" ? "advanced" : "basic");
+
+  setPath(path: LearnPath) {
+    this.path = path;
+    save("learn.path", path);
+  }
 
   has(id: string): boolean {
     return this.done.includes(id);

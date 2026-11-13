@@ -13,21 +13,29 @@ import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/sea
 import { EditorSelection, EditorState, Facet, Prec, StateField, type Extension } from "@codemirror/state";
 import { EditorView, hoverTooltip, keymap, showTooltip, type Tooltip } from "@codemirror/view";
 import { BUILTIN_CONSTS, BUILTINS, KEYWORDS, type Builtin, type Lang } from "@paintarena/engine";
-import { BUILTIN_DOCS, CONST_DOCS, KEYWORD_DOCS, extraCostText } from "./builtinDocs.ts";
+import { ADVANCED_FNS, BUILTIN_DOCS, BUILTIN_EQUIV, CONST_DOCS, COORD_FNS, KEYWORD_DOCS, extraCostText } from "./builtinDocs.ts";
 
 /** Language of the tooltips (changed by reconfiguring the editor). */
 export const ideLang = Facet.define<Lang, Lang>({ combine: (v) => v[0] ?? "it" });
+
+/**
+ * Basic path (no trigonometry): the coordinate functions are suggested first
+ * and sin, cos and atan2 are marked as advanced.
+ */
+export const ideBasic = Facet.define<boolean, boolean>({ combine: (v) => v[0] ?? false });
 
 const T = {
   it: {
     cycles: "cicli", fn: "funzione", global: "variabile globale", local: "variabile locale", param: "parametro",
     constant: "costante", array: "array di {0}", line: "riga {0}", returnsNothing: "non restituisce niente",
     snippet: "modello", definedAt: "definita alla riga {0}", value: "vale {0}",
+    advanced: "avanzato: trigonometria", same: "uguale a",
   },
   en: {
     cycles: "cycles", fn: "function", global: "global variable", local: "local variable", param: "parameter",
     constant: "constant", array: "array of {0}", line: "line {0}", returnsNothing: "returns nothing",
     snippet: "template", definedAt: "defined at line {0}", value: "equals {0}",
+    advanced: "advanced: trigonometry", same: "same as",
   },
 };
 const tr = (lang: Lang, key: keyof (typeof T)["it"], arg: string | number = "") => T[lang][key].replace("{0}", String(arg));
@@ -78,6 +86,8 @@ export function scanProgram(text: string, pos: number): Scan {
   let fnDecl: Sym | null = null;                      // function whose parameters follow
   let readingParams = false;
   let lastVar: Sym | null = null;                     // for `var a[10]`
+  // `for (var i…)`: i belongs to the loop body, one level deeper
+  let forPending = false, forParens = 0;
   const n = text.length;
   const mark = (start: number, end: number) => { if (pos > start && pos <= end) inText = true; };
   let i = 0;
@@ -105,15 +115,19 @@ export function scanProgram(text: string, pos: number): Scan {
         top.push(fnDecl);
         fnLocals = [];
       } else if (pending) {
-        const sym = { name: w, kind: depth === 0 ? (pending === "const" ? "const" : "global") : "local", from: i, depth } as Sym & { depth: number };
+        const sym = { name: w, kind: depth === 0 ? (pending === "const" ? "const" : "global") : "local", from: i, depth: depth + (forParens > 0 ? 1 : 0) } as Sym & { depth: number };
         if (depth === 0) top.push(sym); else fnLocals.push(sym);
         lastVar = sym;
       }
       pending = w === "fn" || w === "var" || w === "const" ? w : null;
+      forPending = w === "for";
       i += w.length;
       continue;
     }
     pending = null;
+    if (c === "(" && (forPending || forParens > 0)) forParens++;
+    else if (c === ")" && forParens > 0) forParens--;
+    forPending = false;
     if (c === "(" && fnDecl && !readingParams) readingParams = true;
     else if (c === ")" && readingParams) { readingParams = false; fnDecl = null; }
     else if (c === "[" && lastVar) {
@@ -163,18 +177,23 @@ function el(tag: string, cls: string, text: string): HTMLElement {
   return e;
 }
 
-function infoBox(head: string, sub: string, body: string): HTMLElement {
+function infoBox(head: string, sub: string, body: string, code = ""): HTMLElement {
   const box = el("div", "pa-info", "");
   box.append(el("code", "pa-info-head", head));
   if (sub) box.append(el("div", "pa-info-sub", sub));
   if (body) box.append(el("div", "pa-info-body", body));
+  if (code) box.append(el("code", "pa-info-equiv", code));
   return box;
 }
 
 function describe(state: EditorState, name: string, pos: number): HTMLElement | null {
   const lang = state.facet(ideLang);
   const b = BUILTIN_BY_NAME.get(name);
-  if (b) return infoBox(signature(b.name, b.params), costText(b, lang) + (b.noValue ? " · " + tr(lang, "returnsNothing") : ""), BUILTIN_DOCS[b.name]?.[lang] ?? "");
+  if (b) {
+    const sub = costText(b, lang) + (b.noValue ? " · " + tr(lang, "returnsNothing") : "") + (ADVANCED_FNS.has(b.name) ? " · " + tr(lang, "advanced") : "");
+    const equiv = BUILTIN_EQUIV[b.name];
+    return infoBox(signature(b.name, b.params), sub, BUILTIN_DOCS[b.name]?.[lang] ?? "", equiv ? `${tr(lang, "same")} ${equiv}` : "");
+  }
   if (name in BUILTIN_CONSTS) return infoBox(name, tr(lang, "value", BUILTIN_CONSTS[name]), CONST_DOCS[name]?.[lang] ?? "");
   if (KEYWORDS.has(name)) return infoBox(name, "", KEYWORD_DOCS[name]?.[lang] ?? "");
   const s = findSym(state, name, pos);
@@ -232,12 +251,14 @@ function complete(ctx: CompletionContext): CompletionResult | null {
     if (s.kind === "fn") add({ label: s.name, type: "function", detail: `(${(s.params ?? []).join(", ")})`, info: line, apply: callApply(s.name, callTemplate(s.name, s.params ?? [])), boost: 2 });
     else add({ label: s.name, type: s.kind === "const" ? "constant" : "variable", detail: s.kind === "const" ? tr(lang, "constant") : s.size ? tr(lang, "array", s.size) : tr(lang, "global"), info: line, boost: 2 });
   }
+  const basic = ctx.state.facet(ideBasic);
   for (const b of BUILTINS) {
+    const advanced = basic && ADVANCED_FNS.has(b.name);
     add({
-      label: b.name, type: "function", detail: `(${b.params.join(", ")}) · ${costText(b, lang)}`,
+      label: b.name, type: "function", detail: `(${b.params.join(", ")}) · ${costText(b, lang)}${advanced ? " · " + tr(lang, "advanced") : ""}`,
       info: () => describe(ctx.state, b.name, ctx.pos)!,
       apply: callApply(b.name, b.params.length && b.params[0] !== "…" ? callTemplate(b.name, b.params) : b.params[0] === "…" ? b.name + "(${})" : b.name + "()"),
-      boost: 1,
+      boost: advanced ? -2 : basic && COORD_FNS.has(b.name) ? 2 : 1,
     });
   }
   for (const [name, value] of Object.entries(BUILTIN_CONSTS))
@@ -252,9 +273,36 @@ function complete(ctx: CompletionContext): CompletionResult | null {
 
 // --- function signature while typing the arguments ---
 
+/**
+ * The text with comments and strings replaced by spaces (same length), and
+ * whether it ends inside one of them.
+ */
+export function maskText(text: string): { masked: string; inText: boolean } {
+  let out = "", i = 0, inText = false;
+  const n = text.length;
+  while (i < n) {
+    const c = text[i];
+    let end = -1;
+    if (c === "/" && text[i + 1] === "/") { const e = text.indexOf("\n", i); end = e < 0 ? n : e; inText = e < 0; }
+    else if (c === "/" && text[i + 1] === "*") { const e = text.indexOf("*/", i + 2); end = e < 0 ? n : e + 2; inText = e < 0; }
+    else if (c === '"') {
+      let j = i + 1;
+      while (j < n && text[j] !== '"' && text[j] !== "\n") j += text[j] === "\\" ? 2 : 1;
+      inText = j >= n;
+      end = Math.min(n, j + 1);
+    }
+    if (end < 0) { out += c; i++; inText = false; continue; }
+    out += text.slice(i, end).replace(/[^\n]/g, " ");
+    i = end;
+  }
+  return { masked: out, inText };
+}
+
 function callAt(state: EditorState, pos: number): { name: string; params: string[]; index: number; open: number; cost: string } | null {
   const start = Math.max(0, pos - 1000);
-  const text = state.sliceDoc(start, pos);
+  // brackets and commas inside comments and strings do not count
+  const { masked: text, inText } = maskText(state.sliceDoc(start, pos));
+  if (inText) return null;
   let depth = 0, commas = 0;
   for (let i = text.length - 1; i >= 0; i--) {
     const c = text[i];

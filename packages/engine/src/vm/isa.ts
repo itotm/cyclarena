@@ -82,11 +82,22 @@ export const BUILTINS: Builtin[] = [
   { id: 15, name: "yield", params: [], cost: 1, extraCost: "+ remaining cycles in the tick", noValue: true },
   { id: 16, name: "print", params: ["…"], cost: 1, noValue: true },
   { id: 17, name: "mark", params: ["x", "y"], cost: 1, noValue: true },
+  // Coordinates instead of angles, for those who have not studied trigonometry
+  // yet. Each one costs as much as the same code written by hand with
+  // atan2/sqrt/sin/cos (counting the cycles to push the arguments), so they
+  // give no advantage and no disadvantage.
+  { id: 18, name: "dir_to", params: ["x", "y"], cost: 16 },
+  { id: 19, name: "dist_to", params: ["x", "y"], cost: 27 },
+  { id: 20, name: "point_x", params: ["dir", "dist"], cost: 15 },
+  { id: 21, name: "point_y", params: ["dir", "dist"], cost: 15 },
+  { id: 22, name: "drive_to", params: ["x", "y", "speed"], cost: 21, noValue: true },
+  { id: 23, name: "throw_at", params: ["x", "y"], cost: 46 },
 ];
 
 export const Sys = {
   scan: 0, throw: 1, drive: 2, painted: 3, speed: 4, heading: 5, loc_x: 6, loc_y: 7,
   time: 8, rand: 9, sin: 10, cos: 11, atan2: 12, sqrt: 13, abs: 14, yield: 15, print: 16, mark: 17,
+  dir_to: 18, dist_to: 19, point_x: 20, point_y: 21, drive_to: 22, throw_at: 23,
 } as const;
 
 export const BUILTIN_BY_NAME = new Map(BUILTINS.map((b) => [b.name, b]));

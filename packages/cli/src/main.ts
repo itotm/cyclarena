@@ -6,7 +6,7 @@ import { basename } from "node:path";
 import { availableParallelism } from "node:os";
 import { Worker } from "node:worker_threads";
 import {
-  compile, disassemble, formatDiagnostic, Match, message, MIN_STACK, recordMatch, ROBOT_CLASSES, rulesForClass, smallestClass,
+  compile, disassemble, formatDiagnostic, Match, message, MIN_STACK, POINTS_SURVIVE, POINTS_WIN, recordMatch, ROBOT_CLASSES, rulesForClass, smallestClass,
   type Lang, type Program, type RobotClassId, type Rules,
 } from "@paintarena/engine";
 import { planTournament, type Job, type JobResult, type TournamentKind } from "./tournament.ts";
@@ -118,7 +118,7 @@ function printResult(names: string[], r: import("@paintarena/engine").MatchResul
   const outcome = r.reason === "victory" ? t(`vince ${names[r.winner]}`, `${names[r.winner]} wins`)
     : r.reason === "draw" ? t("tutti fuori gioco: pareggio", "everyone out: draw")
     : t("tempo scaduto: pareggio tra chi è ancora in gioco", "time out: draw between those still in the game");
-  console.log(t(`Seme ${seed}, ${r.ticks} tick: ${outcome}`, `Seed ${seed}, ${r.ticks} ticks: ${outcome}`));
+  console.log(t(`Seed ${seed}, ${r.ticks} tick: ${outcome}`, `Seed ${seed}, ${r.ticks} ticks: ${outcome}`));
   names.forEach((n, i) => console.log(`  ${n.padEnd(20)} ${t("vernice", "paint")} ${String(r.paint[i]).padStart(3)}%  ${t("cicli", "cycles")} ${r.cycles[i]}`));
 }
 
@@ -133,12 +133,15 @@ async function cmdTournament(files: string[], opts: Map<string, string>) {
   if (files.length < 2) usage();
   const robots = files.map(load);
   const kind = (opts.get("mode") ?? "duel") as TournamentKind;
+  if (kind !== "duel" && kind !== "melee") usage();
   const rounds = Number(opts.get("rounds") ?? 100);
   const seed = Number(opts.get("seed") ?? 1);
   const size = opts.has("size") ? Number(opts.get("size")) : undefined;
-  if (size !== undefined && !(size >= 2 && size <= 4)) usage();
+  const jobsOpt = Number(opts.get("jobs") ?? availableParallelism());
+  if ((size !== undefined && !(size >= 2 && size <= 4)) || !Number.isInteger(rounds) || rounds < 1
+    || !Number.isInteger(seed) || !Number.isInteger(jobsOpt) || jobsOpt < 1) usage();
   const jobs = planTournament(robots.length, kind, rounds, seed, size);
-  const nWorkers = Math.min(Number(opts.get("jobs") ?? availableParallelism()), Math.max(1, Math.ceil(jobs.length / 50)));
+  const nWorkers = Math.min(jobsOpt, Math.max(1, Math.ceil(jobs.length / 50)));
   const sources = robots.map((r) => r.source);
 
   const t0 = performance.now();
@@ -151,7 +154,7 @@ async function cmdTournament(files: string[], opts: Map<string, string>) {
   })))).flat();
   const secs = (performance.now() - t0) / 1000;
 
-  // scoring: 3 points for the winner, 1 for each robot still in the game at a time-out draw
+  // scoring: POINTS_WIN for the winner, POINTS_SURVIVE for each robot still in the game at a time-out draw
   const score = robots.map(() => ({ points: 0, wins: 0, ties: 0, losses: 0, played: 0 }));
   let totalCycles = 0, totalTicks = 0;
   for (const r of results) {
@@ -159,8 +162,8 @@ async function cmdTournament(files: string[], opts: Map<string, string>) {
     for (const p of r.players) {
       const s = score[p];
       s.played++;
-      if (r.winner === p) { s.wins++; s.points += 3; }
-      else if (r.winner < 0 && r.remaining.includes(p)) { s.ties++; s.points += 1; }
+      if (r.winner === p) { s.wins++; s.points += POINTS_WIN; }
+      else if (r.winner < 0 && r.remaining.includes(p)) { s.ties++; s.points += POINTS_SURVIVE; }
       else s.losses++;
     }
   }

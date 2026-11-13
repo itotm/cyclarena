@@ -29,15 +29,25 @@ regole sono nuovi, e i robot di CROBOTS non sono compatibili.
 ## Cosa si può fare
 
 - **Impara**: quattordici missioni brevi in quattro gruppi, ognuna con un'idea
-  sola: muoversi, frenare, array, il radar, la trigonometria con `mark()`,
-  lanciare, mirare, bersagli mobili, anticipare un bersaglio, una CPU lenta, la
-  media di letture imprecise, schivare, una sfida a due, tutti contro tutti.
+  sola: muoversi, frenare, array, il radar, trovare le coordinate di un robot
+  con `mark()`, lanciare, mirare, bersagli mobili, anticipare un bersaglio, una
+  CPU lenta, la media di letture imprecise, schivare, una sfida a due, tutti
+  contro tutti. Due percorsi: **base**, per chi non ha ancora studiato la
+  trigonometria, usa funzioni che lavorano con le coordinate x e y
+  (`drive_to`, `dir_to`, `dist_to`, `point_x`, `point_y`, `throw_at`), con una
+  missione in più che mostra la trigonometria che c'è dietro; **avanzato** usa
+  `atan2`, `sin` e `cos`. I due tipi di funzioni danno gli stessi risultati
+  allo stesso costo in cicli, quindi i robot scritti nei due modi gareggiano
+  alla pari.
 - **Gioca**: scrivi robot in un editor con gli aiuti di un IDE (completamento di
   funzioni, variabili e blocchi, firma e costo delle funzioni, vai alla
   definizione, ripiegamento, cerca e sostituisci, più cursori), tienine quanti vuoi, importali ed
   esportali come file `.pa` per scambiarli con gli amici, e fai partite con 2,
   3 o 4 robot scelti tra i tuoi e gli esempi. Le partite si rivedono fotogramma
   per fotogramma, con la console dei `print()` e il profilo dei cicli.
+- **Manuale**: il linguaggio, tutte le funzioni di sistema con un esempio, e
+  disegni interattivi (si trascinano i robot e i punti) per coordinate, angoli,
+  radar, lanci e trigonometria, con l'indice sul lato.
 - **Torneo**: migliaia di partite (1.000, 10.000, 100.000 o quante vuoi) giocate
   in parallelo nel browser, a duelli o a gruppi di 3 o 4, con classifica,
   scontri diretti, andamento delle vittorie e durata delle partite.
@@ -59,13 +69,14 @@ file `.pa`.
 | `circuito` | Micro | percorre i muri e sorveglia solo la metà interna dell'arena |
 | `inseguitore` | Micro | stringe il fascio del radar, lancia e insegue |
 | `angolo` | Micro | si mette in un angolo, da dove bastano 90° da sorvegliare |
+| `tiratore` | Micro | usa solo le coordinate: trova dov'è il bersaglio con `point_x`/`point_y`, ne stima la velocità e lancia con `throw_at` dove sarà |
 | `segugio` | Mini | aggancia un bersaglio, ne stima la velocità e lancia dove sarà |
 | `cartografo` | Standard | tiene in memoria una mappa dell'arena con i posti pericolosi e quelli già visitati |
 | `stratega` | Illimitata | alterna cinque strategie e tiene quella con cui prende meno vernice; mappa fine e cronologia degli avvistamenti |
 
 I robot di esempio esistono in due versioni con lo stesso programma: in italiano
 in `robots/it` e in inglese in `robots/en` (`first`, `sprinkler`, `wanderer`,
-`spiral`, `circuit`, `chaser`, `corner`, `tracker`, `mapper`, `strategist`). Il sito mostra quelli nella
+`spiral`, `circuit`, `chaser`, `corner`, `marksman`, `tracker`, `mapper`, `strategist`). Il sito mostra quelli nella
 lingua scelta.
 
 ## Come si avvia

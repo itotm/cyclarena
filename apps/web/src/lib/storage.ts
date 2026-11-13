@@ -1,7 +1,8 @@
 // localStorage may be missing or blocked (private windows, etc.):
 // every access is guarded and the app also works without it.
 
-const PREFIX = "paintarena.";
+export const STORAGE_PREFIX = "paintarena.";
+const PREFIX = STORAGE_PREFIX;
 
 export function load(key: string): string | null {
   try { return localStorage.getItem(PREFIX + key); } catch { return null; }

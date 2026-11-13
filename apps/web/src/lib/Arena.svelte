@@ -196,9 +196,25 @@
     for (const b of frame.balloons) drawBalloon(ctx, X(b.x), Y(b.y), Math.max(2, 4 * k), b.f, colors[b.owner]);
   }
 
+  // also redraw when the pixel density changes (window moved to another
+  // screen, zoom) and when the fonts of the names have loaded
+  let dprKey = $state(0);
+  $effect(() => {
+    let mq: MediaQueryList | null = null;
+    const bump = () => { dprKey++; listen(); };
+    const listen = () => {
+      mq?.removeEventListener("change", bump);
+      mq = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+      mq.addEventListener("change", bump, { once: true });
+    };
+    listen();
+    document.fonts?.ready.then(() => dprKey++);
+    return () => mq?.removeEventListener("change", bump);
+  });
+
   $effect(() => {
     // redraw when anything shown changes
-    void frame; void size; void marks; void colors; void names; void zones; void hits; void stains; void outLabel; void themeKey;
+    void frame; void size; void marks; void colors; void names; void zones; void hits; void stains; void outLabel; void themeKey; void dprKey;
     draw();
   });
 </script>

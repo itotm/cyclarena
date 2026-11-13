@@ -2,7 +2,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scanProgram } from "../src/lib/paide.ts";
+import { maskText, scanProgram } from "../src/lib/paide.ts";
 
 const SRC = `const STEP = 20;
 var dir = 0;
@@ -39,6 +39,23 @@ test("editor: program symbols and visibility of local variables", () => {
   // inside a comment or a string
   assert.equal(scanProgram(SRC, SRC.indexOf("fake")).inText, true);
   assert.equal(scanProgram('fn main() { print("hello world"); }', 22).inText, true);
+});
+
+test("editor: a for variable is visible only inside the loop", () => {
+  const src = "fn main() {\n  for (var i = 0; i < 3; i++) {\n    @IN\n  }\n  @OUT\n}";
+  const pos = (m: string) => scanProgram(src.replace(/@(IN|OUT)/g, "    "), src.indexOf(m)).locals.map((s) => s.name);
+  assert.deepEqual(pos("@IN"), ["i"]);
+  assert.deepEqual(pos("@OUT"), []);
+});
+
+test("editor: comments and strings do not confuse the signature help", () => {
+  const { masked, inText } = maskText('x = 1; // see atan2(\nprint("a, b)", f(');
+  assert.equal(masked.length, 'x = 1; // see atan2(\nprint("a, b)", f('.length);
+  assert.ok(!masked.includes("atan2") && !masked.includes("a, b"));
+  assert.equal(inText, false);
+  assert.equal(maskText("// open").inText, true);
+  assert.equal(maskText('print("abc').inText, true);
+  assert.equal(maskText('print("abc")').inText, false);
 });
 
 test("editor: { … } blocks can be folded", async () => {

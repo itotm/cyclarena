@@ -17,6 +17,7 @@ const NAMES: Record<string, Record<Lang, string>> = {
   circuit: { en: "circuit", it: "circuito" },
   chaser: { en: "chaser", it: "inseguitore" },
   corner: { en: "corner", it: "angolo" },
+  marksman: { en: "marksman", it: "tiratore" },
   tracker: { en: "tracker", it: "segugio" },
   mapper: { en: "mapper", it: "cartografo" },
   strategist: { en: "strategist", it: "stratega" },

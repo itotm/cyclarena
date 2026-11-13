@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   // In-browser tournament: thousands of matches between the chosen robots,
   // played in parallel, with standings, head-to-head results and charts.
   import { compile, message, POINTS_SURVIVE, POINTS_WIN, ROBOT_CLASSES, rulesForClass, tournamentGroups, type RobotClassId, type TournamentStats } from "@paintarena/engine";
@@ -116,6 +117,9 @@
   function stop() {
     stopFn?.();
   }
+  // leaving the page stops the threads: otherwise they keep running unseen
+  // (and a new tournament would add more)
+  onDestroy(stop);
 
   // --- standings ---
   const table = $derived.by(() => {
